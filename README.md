@@ -1,31 +1,30 @@
 # TgCrypto-C
 
-> [!NOTE]
-> This is a maintained fork of [pyrogram/tgcrypto](https://github.com/pyrogram/tgcrypto)
-> for [Pyrogram](https://github.com/pyrogram/pyrogram) and
-> [Kurigram](https://kurigram.icu/).
-> It keeps the original API fully compatible and adds modernized packaging, support for
-> Python 3.9–3.15, and optional AES-NI hardware acceleration (see
-> [Performance](#performance)).
+**TgCrypto-C** is a maintained, drop-in replacement for `tgcrypto`
+([pyrogram/tgcrypto](https://github.com/pyrogram/tgcrypto)): a fast AES-256
+cryptography library written in C as a Python extension. It implements the three
+algorithms Telegram clients need, with AES-NI hardware acceleration and reusable
+streaming contexts.
 
-The PyPI distribution is [`tgcrypto-c`](https://pypi.org/project/tgcrypto-c/);
-the Python import remains `tgcrypto`.
+- **Package name:** `tgcrypto-c` on [PyPI](https://pypi.org/project/tgcrypto-c/)
+- **Import name:** `tgcrypto` (unchanged, so existing code keeps working)
+- **Use with:** [Pyrogram](https://github.com/pyrogram/pyrogram) and
+  [Kurigram](https://kurigram.icu/)
+- **Python:** 3.9–3.15
+- **Platforms:** Linux (x86_64, ARM64), macOS (Intel, Apple Silicon), Windows (AMD64)
 
-> **Platforms:** Linux (x86_64, ARM64), macOS (Intel, Apple Silicon) and
-> Windows (AMD64). Wheels are built and tested on each platform.
-
-> [!NOTE]
-> The implementations of the algorithms presented in this repository are to be considered for educational purposes only.
-
-> Fast and Portable Cryptography Extension Library for Pyrogram
-
-**TgCrypto C** is a cryptography library written in C as a Python extension. It is designed to be portable, fast,
-and easy to install and use with Pyrogram and Kurigram. It implements the cryptographic algorithms Telegram requires,
-namely:
+It implements the cryptographic algorithms Telegram requires:
 
 - **`AES-256-IGE`** - used in [MTProto v2.0](https://core.telegram.org/mtproto).
 - **`AES-256-CTR`** - used for [CDN encrypted files](https://core.telegram.org/cdn).
 - **`AES-256-CBC`** - used for [encrypted passport credentials](https://core.telegram.org/passport).
+
+Migrating from `tgcrypto` requires no code change: the six original functions
+keep their exact names, argument order, return types and validation behaviour,
+and the cryptographic output is bit-for-bit identical.
+
+> [!NOTE]
+> The implementations of the algorithms presented in this repository are to be considered for educational purposes only.
 
 ## Requirements
 
@@ -401,6 +400,91 @@ for Passport). The surrounding protocol — `msg_key` derivation
 `aes_key`/`aes_iv`, padding `12..1024` bytes, `msg_id`/`seqno` checks,
 RSA/DH handshake, SRP 2FA — belongs in the client layer (e.g. Pyrogram or Kurigram),
 not here. `ige256_decrypt` does not verify `msg_key`; callers must.
+
+## FAQ
+
+### What is the difference between `tgcrypto-c`, `tgcrypto` and `TgCryptoRust`?
+
+All three expose the same six functions under the `tgcrypto` import.
+`tgcrypto` (the original) is unmaintained and software-only. `tgcrypto-c` is
+this project: the same C implementation plus AES-NI acceleration, reusable
+streaming contexts, and current Python and platform support. `TgCryptoRust` is
+an independent Rust reimplementation.
+
+Install only one of them. They all provide the `tgcrypto` module, so having two
+installed at once gives a conflict:
+
+``` bash
+$ pip uninstall tgcrypto TgCryptoRust
+$ pip install tgcrypto-c
+```
+
+### Is it a drop-in replacement? Do I need to change my code?
+
+No code changes. The six original functions keep their names, argument order,
+return types and validation behaviour, and produce bit-for-bit identical
+ciphertext. Existing `import tgcrypto` statements keep working.
+
+### Which Python versions are supported?
+
+Python 3.9 through 3.15, including free-threaded builds (3.14t, 3.15t).
+
+### Which platforms have prebuilt wheels?
+
+Linux (x86_64, ARM64), macOS (Intel and Apple Silicon) and Windows (AMD64 and
+32-bit). Wheels are built and tested on each platform.
+
+### Why is it faster than the original `tgcrypto`?
+
+The original ships a portable software AES implementation. This fork detects
+AES-NI at runtime and uses hardware AES instructions when available, falling
+back to the same portable code path otherwise. On AES-NI hardware that is
+roughly 6.6x faster for IGE, 14.7x for CTR and 6.9x for CBC in local
+measurements. See [Performance](#performance) for the full tables and the
+reference machine.
+
+### How do I make repeated small encryptions faster?
+
+Use a reusable context, which expands the key once and keeps the chaining state
+between calls:
+
+``` python
+context = tgcrypto.CTRContext(key, iv)
+out = context.update(chunk)
+```
+
+`IGEContext` and `CBCContext` work the same way. On 16-byte messages a context is
+about 3x faster than calling the one-shot function each time.
+
+### Is it thread-safe? Can I use it from multiple threads?
+
+Yes. Every mode call releases the GIL, so Python threads run AES concurrently
+and throughput scales with cores. A single context object is stateful, so give
+each thread its own context rather than sharing one.
+
+### Is it secure? Has it been audited?
+
+No third-party audit has been performed. The AES-NI path uses constant-time
+hardware instructions; the portable fallback is a table-based implementation
+that is functionally correct but not hardened against cache-timing side
+channels. See [Security notes](#security-notes).
+
+### How do I report a bug or ask a question?
+
+Open an issue at
+<https://github.com/bisug/tgcrypto-c/issues>.
+
+## Security notes
+
+- Neither this project nor the original has received a formal third-party audit.
+  Do not treat it as a certified cryptographic module.
+- AES-NI is detected at runtime and preferred. It uses constant-time AES
+  instructions.
+- The portable fallback (non-x86, or built with `TGCRYPTO_NO_AESNI`) is a
+  table-based implementation and is not hardened against cache-timing side
+  channels.
+- `ige256_decrypt` does not verify the MTProto `msg_key`. Callers must, as
+  described in [MTProto 2.0 boundary](#mtproto-20-boundary).
 
 ## Testing
 
