@@ -72,6 +72,11 @@ dominates at that size. Two further optimizations target that fixed cost:
   instead of first copying it into the output buffer, so large payloads are
   touched once rather than twice.
 
+For repeated CTR chunks with the same key, use `CTRContext` to expand the key
+once and retain the counter state between calls. On a Python 3.15 x86-64
+build, this reduced 16-byte call time by about 3.4x and 1 KiB call time by
+about 1.75x in local measurements. Results depend on the CPU and compiler.
+
 Indicative, on a low-power Celeron N4120 with the AES-NI path active (best of
 5, one C call, so no Python overhead included):
 
@@ -150,6 +155,10 @@ def ctr256_decrypt(data: bytes, key: bytes, iv: bytearray, state: bytearray) -> 
 
 def cbc256_encrypt(data: bytes, key: bytes, iv: bytearray) -> bytes: ...
 def cbc256_decrypt(data: bytes, key: bytes, iv: bytearray) -> bytes: ...
+
+class CTRContext:
+  def __init__(self, key: bytes, iv: bytes, state: int = 0) -> None: ...
+  def update(self, data: bytes) -> bytes: ...
 ```
 
 > **Buffer semantics (MTProto streaming):** `ige256_*` copies the 32-byte IV
@@ -158,6 +167,11 @@ def cbc256_decrypt(data: bytes, key: bytes, iv: bytearray) -> bytes: ...
 > the 16-byte `iv` to the last block — so those must be **writable**
 > (`bytearray`/`memoryview`). Immutable `bytes` there raises `BufferError`
 > instead of corrupting memory. Don't share one `iv`/`state` across threads.
+
+`CTRContext.update()` is equivalent to repeated `ctr256_encrypt()` calls and
+retains the counter internally. It can also decrypt, because CTR encryption
+and decryption are the same XOR operation. A context is stateful and should
+not be used concurrently from multiple threads.
 
 ## Usage
 
@@ -208,6 +222,18 @@ print(data == ctr_decrypted)  # True
 ```
 
 ### CTR Mode (stream)
+
+For the lowest per-chunk overhead, use a reusable context:
+
+``` python
+import os
+import tgcrypto
+
+key = os.urandom(32)
+chunks = [os.urandom(1024), os.urandom(1024)]
+context = tgcrypto.CTRContext(key, os.urandom(16))
+encrypted_chunks = [context.update(chunk) for chunk in chunks]
+```
 
 ``` python
 import os
