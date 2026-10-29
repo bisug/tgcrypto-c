@@ -37,6 +37,11 @@ hardware-accelerated AES instructions, detected once at runtime. On every other
 platform (or CPU without AES-NI) it falls back to the portable software
 implementation. Both paths produce bit-for-bit identical output.
 
+Run the local benchmark with:
+
+``` bash
+$ python benchmarks/bench_modes.py
+```
 To build without the hardware acceleration path, define `TGCRYPTO_NO_AESNI`:
 
 ``` bash
@@ -111,10 +116,10 @@ copy changes (same machine, alternating runs, best of 2 rounds, MB/s):
 IGE on large buffers is deliberately unchanged: with a serial feedback chain
 each block depends on the previous one, so the mode is bound by AES round
 latency rather than throughput and no amount of key-schedule tuning helps.
-Because MTProto 2.0 derives the AES key from the auth key and the per-message
-`msg_key`, the key schedule has to be paid on every message and cannot be
-cached across calls — making it cheap is what pays off for real traffic,
-rather than leaving it as table lookups on that critical path.
+Because MTProto 2.0 derives a new AES key from the auth key and per-message
+`msg_key`, the legacy one-shot functions pay the key schedule cost on every
+call. For a logical stream with one key, the reusable context APIs avoid that
+cost.
 
 ## Comparison with the original
 
@@ -159,6 +164,14 @@ def cbc256_decrypt(data: bytes, key: bytes, iv: bytearray) -> bytes: ...
 class CTRContext:
   def __init__(self, key: bytes, iv: bytes, state: int = 0) -> None: ...
   def update(self, data: bytes) -> bytes: ...
+
+class IGEContext:
+  def __init__(self, key: bytes, iv: bytes, decrypt: bool = False) -> None: ...
+  def update(self, data: bytes) -> bytes: ...
+
+class CBCContext:
+  def __init__(self, key: bytes, iv: bytes, decrypt: bool = False) -> None: ...
+  def update(self, data: bytes) -> bytes: ...
 ```
 
 > **Buffer semantics (MTProto streaming):** `ige256_*` copies the 32-byte IV
@@ -172,6 +185,10 @@ class CTRContext:
 retains the counter internally. It can also decrypt, because CTR encryption
 and decryption are the same XOR operation. A context is stateful and should
 not be used concurrently from multiple threads.
+
+`IGEContext` and `CBCContext` retain their mode feedback between updates. Their
+input chunks must be non-empty and aligned to the 16-byte AES block size. Set
+`decrypt=True` when constructing a context for decryption.
 
 ## Usage
 
