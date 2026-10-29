@@ -3,6 +3,7 @@ name: Publish
 on:
   release:
     types: [published]
+  workflow_dispatch:
 
 jobs:
   sdist:
@@ -49,7 +50,7 @@ jobs:
         env:
           CIBW_ARCHS_MACOS: "x86_64 universal2 arm64"
           CIBW_TEST_REQUIRES: pytest
-          CIBW_TEST_COMMAND: cd {project} && python -m pytest
+          CIBW_TEST_COMMAND: python -m pytest {project}/tests
           CIBW_TEST_SKIP: "*-macosx_arm64 *-win_arm64"
           CIBW_BUILD_VERBOSITY: 1
 
