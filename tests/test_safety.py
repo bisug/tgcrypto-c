@@ -161,6 +161,44 @@ class TestCTRContext(unittest.TestCase):
             context.update(b"")
 
 
+class TestModeContexts(unittest.TestCase):
+    def test_ige_context_matches_chunked_calls(self):
+        key = os.urandom(32)
+        iv = os.urandom(32)
+        data = os.urandom(16 * 20)
+        expected = tgcrypto.ige256_encrypt(data, key, iv)
+        actual = tgcrypto.IGEContext(key, iv)
+        encrypted = b"".join(
+            actual.update(data[i:i + 32]) for i in range(0, len(data), 32)
+        )
+        self.assertEqual(encrypted, expected)
+        self.assertEqual(tgcrypto.IGEContext(key, iv, True).update(encrypted), data)
+
+    def test_cbc_context_matches_chunked_calls(self):
+        key = os.urandom(32)
+        iv = os.urandom(16)
+        data = os.urandom(16 * 20)
+        expected_iv = bytearray(iv)
+        expected = b"".join(
+            tgcrypto.cbc256_encrypt(data[i:i + 32], key, expected_iv)
+            for i in range(0, len(data), 32)
+        )
+        actual = tgcrypto.CBCContext(key, iv)
+        encrypted = b"".join(
+            actual.update(data[i:i + 32]) for i in range(0, len(data), 32)
+        )
+        self.assertEqual(encrypted, expected)
+        self.assertEqual(tgcrypto.CBCContext(key, iv, True).update(encrypted), data)
+
+    def test_block_contexts_reject_unaligned_data(self):
+        for context in (
+            tgcrypto.IGEContext(bytes(32), bytes(32)),
+            tgcrypto.CBCContext(bytes(32), bytes(16)),
+        ):
+            with self.assertRaises(ValueError):
+                context.update(bytes(15))
+
+
 class TestIGEKnownAnswer(unittest.TestCase):
     # Hand-verifiable KAT for the software fallback: single-block IGE must
     # equal plain AES-ECB wrapped in the IGE chaining XORs:

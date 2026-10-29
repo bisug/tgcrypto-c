@@ -374,6 +374,194 @@ static PyTypeObject CTRContextType = {
     .tp_dealloc = (destructor) ctr_context_dealloc,
 };
 
+typedef struct {
+    PyObject_HEAD
+    tgcrypto_aes_context aes;
+    uint8_t iv[32];
+    uint8_t decrypt;
+} IGEContextObject;
+
+static int ige_context_init(IGEContextObject *self, PyObject *args, PyObject *kwargs) {
+    Py_buffer key, iv;
+    int decrypt = 0;
+    static char *keywords[] = {"key", "iv", "decrypt", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "y*y*|p:IGEContext",
+                                     keywords, &key, &iv, &decrypt))
+        return -1;
+
+    if (key.len != 32 || iv.len != 32) {
+        PyBuffer_Release(&key);
+        PyBuffer_Release(&iv);
+        PyErr_SetString(PyExc_ValueError,
+                        "Key and IV sizes must be exactly 32 bytes");
+        return -1;
+    }
+
+    tgcrypto_aes_context_init(&self->aes, key.buf, (uint8_t) decrypt);
+    memcpy(self->iv, iv.buf, sizeof(self->iv));
+    self->decrypt = (uint8_t) decrypt;
+
+    PyBuffer_Release(&key);
+    PyBuffer_Release(&iv);
+    return 0;
+}
+
+static void ige_context_dealloc(IGEContextObject *self) {
+    tgcrypto_aes_context_wipe(&self->aes);
+    tgcrypto_wipe(self->iv, sizeof(self->iv));
+    Py_TYPE(self)->tp_free((PyObject *) self);
+}
+
+static PyObject *ige_context_update(IGEContextObject *self, PyObject *args) {
+    Py_buffer data;
+    PyObject *out;
+
+    if (!PyArg_ParseTuple(args, "y*:update", &data))
+        return NULL;
+
+    if (data.len == 0 || data.len % 16 != 0) {
+        PyBuffer_Release(&data);
+        PyErr_SetString(PyExc_ValueError,
+                        "Data size must be a non-empty multiple of 16 bytes");
+        return NULL;
+    }
+
+    if ((uint64_t) data.len > (uint64_t) UINT32_MAX) {
+        PyBuffer_Release(&data);
+        PyErr_SetString(PyExc_ValueError, "Data is too large (max 4294967295 bytes)");
+        return NULL;
+    }
+
+    out = PyBytes_FromStringAndSize(NULL, data.len);
+
+    if (out == NULL) {
+        PyBuffer_Release(&data);
+        return NULL;
+    }
+
+    Py_BEGIN_ALLOW_THREADS
+        ige256_ctx(data.buf, (uint8_t *) PyBytes_AS_STRING(out),
+                   (uint32_t) data.len, &self->aes, self->iv,
+                   (uint8_t) !self->decrypt);
+    Py_END_ALLOW_THREADS
+
+    PyBuffer_Release(&data);
+    return out;
+}
+
+static PyMethodDef ige_context_methods[] = {
+    {"update", (PyCFunction) ige_context_update, METH_VARARGS,
+     "update(data) -> bytes\n--\n\nEncrypt or decrypt the next block-aligned data chunk."},
+    {NULL}
+};
+
+static PyTypeObject IGEContextType = {
+    PyVarObject_HEAD_INIT(NULL, 0)
+    .tp_name = "tgcrypto.IGEContext",
+    .tp_doc = "Reusable AES-256-IGE context.",
+    .tp_basicsize = sizeof(IGEContextObject),
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_methods = ige_context_methods,
+    .tp_init = (initproc) ige_context_init,
+    .tp_new = PyType_GenericNew,
+    .tp_dealloc = (destructor) ige_context_dealloc,
+};
+
+typedef struct {
+    PyObject_HEAD
+    tgcrypto_aes_context aes;
+    uint8_t iv[16];
+    uint8_t decrypt;
+} CBCContextObject;
+
+static int cbc_context_init(CBCContextObject *self, PyObject *args, PyObject *kwargs) {
+    Py_buffer key, iv;
+    int decrypt = 0;
+    static char *keywords[] = {"key", "iv", "decrypt", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "y*y*|p:CBCContext",
+                                     keywords, &key, &iv, &decrypt))
+        return -1;
+
+    if (key.len != 32 || iv.len != 16) {
+        PyBuffer_Release(&key);
+        PyBuffer_Release(&iv);
+        PyErr_SetString(PyExc_ValueError,
+                        "Key must be 32 bytes and IV must be 16 bytes");
+        return -1;
+    }
+
+    tgcrypto_aes_context_init(&self->aes, key.buf, (uint8_t) decrypt);
+    memcpy(self->iv, iv.buf, sizeof(self->iv));
+    self->decrypt = (uint8_t) decrypt;
+
+    PyBuffer_Release(&key);
+    PyBuffer_Release(&iv);
+    return 0;
+}
+
+static void cbc_context_dealloc(CBCContextObject *self) {
+    tgcrypto_aes_context_wipe(&self->aes);
+    tgcrypto_wipe(self->iv, sizeof(self->iv));
+    Py_TYPE(self)->tp_free((PyObject *) self);
+}
+
+static PyObject *cbc_context_update(CBCContextObject *self, PyObject *args) {
+    Py_buffer data;
+    PyObject *out;
+
+    if (!PyArg_ParseTuple(args, "y*:update", &data))
+        return NULL;
+
+    if (data.len == 0 || data.len % 16 != 0) {
+        PyBuffer_Release(&data);
+        PyErr_SetString(PyExc_ValueError,
+                        "Data size must be a non-empty multiple of 16 bytes");
+        return NULL;
+    }
+
+    if ((uint64_t) data.len > (uint64_t) UINT32_MAX) {
+        PyBuffer_Release(&data);
+        PyErr_SetString(PyExc_ValueError, "Data is too large (max 4294967295 bytes)");
+        return NULL;
+    }
+
+    out = PyBytes_FromStringAndSize(NULL, data.len);
+
+    if (out == NULL) {
+        PyBuffer_Release(&data);
+        return NULL;
+    }
+
+    Py_BEGIN_ALLOW_THREADS
+        cbc256_ctx(data.buf, (uint8_t *) PyBytes_AS_STRING(out),
+                   (uint32_t) data.len, &self->aes, self->iv,
+                   (uint8_t) !self->decrypt);
+    Py_END_ALLOW_THREADS
+
+    PyBuffer_Release(&data);
+    return out;
+}
+
+static PyMethodDef cbc_context_methods[] = {
+    {"update", (PyCFunction) cbc_context_update, METH_VARARGS,
+     "update(data) -> bytes\n--\n\nEncrypt or decrypt the next block-aligned data chunk."},
+    {NULL}
+};
+
+static PyTypeObject CBCContextType = {
+    PyVarObject_HEAD_INIT(NULL, 0)
+    .tp_name = "tgcrypto.CBCContext",
+    .tp_doc = "Reusable AES-256-CBC context.",
+    .tp_basicsize = sizeof(CBCContextObject),
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_methods = cbc_context_methods,
+    .tp_init = (initproc) cbc_context_init,
+    .tp_new = PyType_GenericNew,
+    .tp_dealloc = (destructor) cbc_context_dealloc,
+};
+
 PyDoc_STRVAR(
     ige256_encrypt_docs,
     "ige256_encrypt(data, key, iv)\n"
@@ -458,9 +646,28 @@ PyMODINIT_FUNC PyInit_tgcrypto(void) {
         return NULL;
     }
 
+    if (PyType_Ready(&IGEContextType) < 0 || PyType_Ready(&CBCContextType) < 0) {
+        Py_DECREF(m);
+        return NULL;
+    }
+
     Py_INCREF(&CTRContextType);
     if (PyModule_AddObject(m, "CTRContext", (PyObject *) &CTRContextType) < 0) {
         Py_DECREF(&CTRContextType);
+        Py_DECREF(m);
+        return NULL;
+    }
+
+    Py_INCREF(&IGEContextType);
+    if (PyModule_AddObject(m, "IGEContext", (PyObject *) &IGEContextType) < 0) {
+        Py_DECREF(&IGEContextType);
+        Py_DECREF(m);
+        return NULL;
+    }
+
+    Py_INCREF(&CBCContextType);
+    if (PyModule_AddObject(m, "CBCContext", (PyObject *) &CBCContextType) < 0) {
+        Py_DECREF(&CBCContextType);
         Py_DECREF(m);
         return NULL;
     }

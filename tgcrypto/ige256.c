@@ -21,7 +21,7 @@
 #include "aes_context.h"
 
 void ige256_ctx(const uint8_t in[], uint8_t out[], uint32_t length,
-        const tgcrypto_aes_context *context, const uint8_t iv[32],
+                const tgcrypto_aes_context *context, uint8_t iv[32],
         uint8_t encrypt) {
     uint8_t iv1[AES_BLOCK_SIZE], iv2[AES_BLOCK_SIZE];
     uint8_t chunk[AES_BLOCK_SIZE], buffer[AES_BLOCK_SIZE];
@@ -59,6 +59,14 @@ void ige256_ctx(const uint8_t in[], uint8_t out[], uint32_t length,
             }
         }
 
+        if (encrypt) {
+            _mm_storeu_si128((__m128i *) iv, iv1m);
+            _mm_storeu_si128((__m128i *) (iv + AES_BLOCK_SIZE), iv2m);
+        } else {
+            _mm_storeu_si128((__m128i *) iv, iv2m);
+            _mm_storeu_si128((__m128i *) (iv + AES_BLOCK_SIZE), iv1m);
+        }
+
         tgcrypto_wipe(iv1, sizeof(iv1));
         tgcrypto_wipe(iv2, sizeof(iv2));
 
@@ -81,6 +89,14 @@ void ige256_ctx(const uint8_t in[], uint8_t out[], uint32_t length,
         memcpy(iv2, chunk, AES_BLOCK_SIZE);
     }
 
+    if (encrypt) {
+        memcpy(iv, iv1, AES_BLOCK_SIZE);
+        memcpy(iv + AES_BLOCK_SIZE, iv2, AES_BLOCK_SIZE);
+    } else {
+        memcpy(iv, iv2, AES_BLOCK_SIZE);
+        memcpy(iv + AES_BLOCK_SIZE, iv1, AES_BLOCK_SIZE);
+    }
+
     tgcrypto_wipe(iv1, sizeof(iv1));
     tgcrypto_wipe(iv2, sizeof(iv2));
     tgcrypto_wipe(chunk, sizeof(chunk));
@@ -90,8 +106,11 @@ void ige256_ctx(const uint8_t in[], uint8_t out[], uint32_t length,
 void ige256(const uint8_t in[], uint8_t out[], uint32_t length,
             const uint8_t key[32], const uint8_t iv[32], uint8_t encrypt) {
     tgcrypto_aes_context context;
+    uint8_t contextIv[32];
 
     tgcrypto_aes_context_init(&context, key, (uint8_t) (encrypt ? 0 : 1));
-    ige256_ctx(in, out, length, &context, iv, encrypt);
+    memcpy(contextIv, iv, sizeof(contextIv));
+    ige256_ctx(in, out, length, &context, contextIv, encrypt);
+    tgcrypto_wipe(contextIv, sizeof(contextIv));
     tgcrypto_aes_context_wipe(&context);
 }
