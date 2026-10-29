@@ -40,7 +40,7 @@ import tgcrypto
 To install directly from source:
 
 ``` bash
-$ pip3 install -U git+https://github.com/bisug/tgcrypto
+$ pip3 install -U git+https://github.com/bisug/tgcrypto-c
 ```
 
 ## Performance
@@ -58,7 +58,7 @@ $ python benchmarks/bench_modes.py
 To build without the hardware acceleration path, define `TGCRYPTO_NO_AESNI`:
 
 ``` bash
-$ CFLAGS="-DTGCRYPTO_NO_AESNI" pip3 install git+https://github.com/bisug/tgcrypto
+$ CFLAGS="-DTGCRYPTO_NO_AESNI" pip3 install git+https://github.com/bisug/tgcrypto-c
 ```
 
 For a maximum-speed local build (GCC/Clang only), opt in to heavier
@@ -66,7 +66,7 @@ optimization — kept out of the default build so the MSVC Windows wheels keep
 working:
 
 ``` bash
-$ CFLAGS="-O3 -flto" pip3 install git+https://github.com/bisug/tgcrypto
+$ CFLAGS="-O3 -flto" pip3 install git+https://github.com/bisug/tgcrypto-c
 ```
 
 Note the portable table-based AES implementation is functionally correct but
@@ -345,7 +345,7 @@ not here. `ige256_decrypt` does not verify `msg_key`; callers must.
 
 ## Testing
 
-1. Clone this repository: `git clone https://github.com/bisug/tgcrypto`.
+1. Clone this repository: `git clone https://github.com/bisug/tgcrypto-c`.
 2. Enter the directory: `cd tgcrypto`.
 3. Install the test dependencies: `pip3 install pytest pycryptodome cryptography`
    (`pycryptodome`/`cryptography` are used as independent reference primitives by

@@ -43,11 +43,11 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/bisug/tgcrypto"
+Homepage = "https://github.com/bisug/tgcrypto-c"
 Documentation = "https://docs.pyrogram.org"
-Tracker = "https://github.com/bisug/tgcrypto/issues"
+Tracker = "https://github.com/bisug/tgcrypto-c/issues"
 Community = "https://t.me/pyrogram"
-Source = "https://github.com/bisug/tgcrypto"
+Source = "https://github.com/bisug/tgcrypto-c"
 
 [tool.setuptools]
 # The distribution ships a single top-level compiled extension module named
