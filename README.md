@@ -11,6 +11,9 @@
 
 The PyPI distribution is `tgcrypto-c`; the Python import remains `tgcrypto`.
 
+> **Linux only:** this release supports Linux x86_64 and ARM64. Windows and
+> macOS wheels are not provided or supported.
+
 > [!NOTE]
 > The implementations of the algorithms presented in this repository are to be considered for educational purposes only.
 
@@ -27,7 +30,8 @@ namely:
 ## Requirements
 
 - Python 3.9 or higher.
-- A C compiler (the extension is compiled from source).
+- A Linux C compiler (the extension is compiled from source when a wheel is
+  unavailable).
 
 ## Installation
 
@@ -67,8 +71,7 @@ $ CFLAGS="-DTGCRYPTO_NO_AESNI" pip3 install git+https://github.com/bisug/tgcrypt
 ```
 
 For a maximum-speed local build (GCC/Clang only), opt in to heavier
-optimization — kept out of the default build so the MSVC Windows wheels keep
-working:
+optimization — kept out of the default build:
 
 ``` bash
 $ CFLAGS="-O3 -flto" pip3 install git+https://github.com/bisug/tgcrypto-c
@@ -151,7 +154,7 @@ cost.
 | Speed without AES-NI / non-x86 | — | Identical (same software code path, bit-for-bit) |
 | Output compatibility | — | Cryptographic output is **bit-for-bit identical** to the original |
 | API | Six functions | **Unchanged** — drop-in compatible with Pyrogram and Kurigram |
-| CI | — | Test matrix 3.9–3.15; wheels built for Linux (x86_64, ARM64), macOS (Intel, Apple Silicon) and Windows |
+| CI | — | Test matrix 3.9–3.15; Linux wheels built for x86_64 and ARM64 |
 | License | LGPLv3+ | LGPLv3+ |
 
 Indicative benchmark (AES-NI, 16 MB buffers, best of 5):

@@ -34,7 +34,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm, windows-latest, macos-latest]
+        os: [ubuntu-latest, ubuntu-24.04-arm]
 
     steps:
       - name: Check out release
@@ -48,10 +48,8 @@ jobs:
       - name: Build wheels
         run: python -m cibuildwheel --output-dir wheelhouse
         env:
-          CIBW_ARCHS_MACOS: "x86_64 universal2 arm64"
           CIBW_TEST_REQUIRES: pytest
           CIBW_TEST_COMMAND: python -m pytest {project}/tests
-          CIBW_TEST_SKIP: "*-macosx_arm64 *-win_arm64"
           CIBW_BUILD_VERBOSITY: 1
 
       - uses: actions/upload-artifact@v6
