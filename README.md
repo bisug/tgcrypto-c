@@ -1,5 +1,4 @@
-# TgCrypto C
-# TgCrypto
+# TgCrypto-C
 
 > [!NOTE]
 > This is a maintained fork of [pyrogram/tgcrypto](https://github.com/pyrogram/tgcrypto)
@@ -9,7 +8,8 @@
 > Python 3.9–3.15, and optional AES-NI hardware acceleration (see
 > [Performance](#performance)).
 
-The PyPI distribution is `tgcrypto-c`; the Python import remains `tgcrypto`.
+The PyPI distribution is [`tgcrypto-c`](https://pypi.org/project/tgcrypto-c/);
+the Python import remains `tgcrypto`.
 
 > **Linux only:** this release supports Linux x86_64 and ARM64. Windows and
 > macOS wheels are not provided or supported.
@@ -35,12 +35,37 @@ namely:
 
 ## Installation
 
+Prebuilt Linux wheels are published on
+[PyPI](https://pypi.org/project/tgcrypto-c/).
+
+### pip
+
+``` bash
+$ pip install tgcrypto-c
+```
+
+or, equivalently, the explicit module form:
+
 ``` bash
 $ python -m pip install -U tgcrypto-c
 ```
 
+### uv
+
+Add it to your project (updates `pyproject.toml` and the lockfile):
+
+``` bash
+$ uv add tgcrypto-c
+```
+
+Or install it into the active virtual environment, pip-style:
+
+``` bash
+$ uv pip install tgcrypto-c
+```
+
 The distribution is named `tgcrypto-c`; existing code continues to use the
-`tgcrypto` import:
+`tgcrypto` import, so no source changes are needed:
 
 ``` python
 import tgcrypto
@@ -49,7 +74,7 @@ import tgcrypto
 To install directly from source:
 
 ``` bash
-$ pip3 install -U git+https://github.com/bisug/tgcrypto-c
+$ pip install -U git+https://github.com/bisug/tgcrypto-c
 ```
 
 ## Performance
@@ -116,9 +141,10 @@ that fixed cost:
 
 ### Measured performance
 
-Indicative figures from a Python 3.15 Linux x86_64 build with AES-NI active
-(best of 7, single-threaded). Absolute numbers depend heavily on the CPU and
-compiler.
+Every figure below comes from a low-power 4-core Intel Celeron N4120 with no
+AVX2 (AES-NI only), running a Python 3.15 Linux x86_64 build (best of 7,
+single-threaded). Absolute throughput will differ substantially on server CPUs,
+and these numbers have not been verified there.
 
 1 MiB throughput, one-shot functions versus reusable contexts:
 
