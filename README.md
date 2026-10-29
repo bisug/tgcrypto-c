@@ -3,7 +3,7 @@
 > [!NOTE]
 > This is a maintained fork of [pyrogram/tgcrypto](https://github.com/pyrogram/tgcrypto).
 > It keeps the original API fully compatible and adds modernized packaging, support for
-> Python 3.9–3.14, and optional AES-NI hardware acceleration (see
+> Python 3.9–3.15, and optional AES-NI hardware acceleration (see
 > [Performance](#performance)).
 
 > [!NOTE]
@@ -116,14 +116,14 @@ rather than leaving it as table lookups on that critical path.
 | | Original ([pyrogram/tgcrypto](https://github.com/pyrogram/tgcrypto)) | This fork |
 |---|---|---|
 | Status | Unmaintained | Actively maintained |
-| Python support | 3.7 – 3.11 | **3.9 – 3.14** |
+| Python support | 3.7 – 3.11 | **3.9 – 3.15** |
 | Packaging | `setup.py` | `pyproject.toml` (PEP 621) |
 | AES acceleration | Portable software implementation only | **AES-NI hardware acceleration** (runtime-detected) with software fallback |
 | Speed on AES-NI CPUs | Baseline | ~**4–6× faster** for IGE/CTR on large buffers |
 | Speed without AES-NI / non-x86 | — | Identical (same software code path, bit-for-bit) |
 | Output compatibility | — | Cryptographic output is **bit-for-bit identical** to the original |
 | API | Six functions | **Unchanged** — drop-in compatible |
-| CI | — | Test matrix 3.9–3.14; wheels built for Linux (x86_64, ARM64), macOS (Intel, Apple Silicon) and Windows |
+| CI | — | Test matrix 3.9–3.15; wheels built for Linux (x86_64, ARM64), macOS (Intel, Apple Silicon) and Windows |
 | License | LGPLv3+ | LGPLv3+ |
 
 Indicative benchmark (AES-NI, 16 MB buffers, best of 5):
