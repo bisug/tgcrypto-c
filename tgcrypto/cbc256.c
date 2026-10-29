@@ -31,7 +31,12 @@ void cbc256_ctx(const uint8_t in[], uint8_t out[], uint32_t length,
      * needs the table-based expanded key. */
 #if TGCRYPTO_AESNI
     if (context->use_aesni) {
+        __m128i roundKeys[15];
         __m128i ivm, next, t;
+
+        /* Round keys are kept as bytes in the context (see aes_context.h) and
+         * copied into this naturally aligned local array before use. */
+        tgcrypto_aesni_load_keys(context->roundKeyBytes, roundKeys);
 
         if (encrypt) {
             ivm = _mm_loadu_si128((const __m128i *) iv);
@@ -39,7 +44,7 @@ void cbc256_ctx(const uint8_t in[], uint8_t out[], uint32_t length,
             for (i = 0; i < length; i += AES_BLOCK_SIZE) {
                 t = _mm_loadu_si128((const __m128i *) &in[i]);
                 t = _mm_xor_si128(t, ivm);
-                t = tgcrypto_aesni_encrypt_block(t, context->roundKeys);
+                t = tgcrypto_aesni_encrypt_block(t, roundKeys);
                 _mm_storeu_si128((__m128i *) &out[i], t);
                 ivm = t;
             }
@@ -48,7 +53,7 @@ void cbc256_ctx(const uint8_t in[], uint8_t out[], uint32_t length,
 
             for (i = 0; i < length; i += AES_BLOCK_SIZE) {
                 next = _mm_loadu_si128((const __m128i *) &in[i]);
-                t = tgcrypto_aesni_decrypt_block(next, context->roundKeys);
+                t = tgcrypto_aesni_decrypt_block(next, roundKeys);
                 t = _mm_xor_si128(t, ivm);
                 _mm_storeu_si128((__m128i *) &out[i], t);
                 ivm = next;

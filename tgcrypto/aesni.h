@@ -109,6 +109,34 @@ static TGCRYPTO_AESNI_TARGET __m128i tgcrypto_aesni_encrypt_block(__m128i block,
     return _mm_aesenclast_si128(block, roundKeys[14]);
 }
 
+/*
+ * Copy serialized round keys into a local, naturally aligned array.
+ *
+ * Round keys live in the containing context as bytes rather than ``__m128i``,
+ * because that context is embedded in a Python object and Python's allocator
+ * only guarantees 8-byte alignment on 32-bit targets. A ``__m128i`` member
+ * lets the compiler assume 16-byte alignment and emit aligned moves, which
+ * fault on a misaligned context. Unaligned loads plus a local array keep the
+ * round keys correctly aligned for the AES instructions regardless of how the
+ * caller allocated the context.
+ */
+static TGCRYPTO_AESNI_TARGET void tgcrypto_aesni_load_keys(const uint8_t roundKeyBytes[240],
+                                                                    __m128i roundKeys[15]) {
+    int i;
+
+    for (i = 0; i < 15; ++i)
+        roundKeys[i] = _mm_loadu_si128((const __m128i *) &roundKeyBytes[16 * i]);
+}
+
+/* Serialize an aligned round-key array back into the context's byte storage. */
+static TGCRYPTO_AESNI_TARGET void tgcrypto_aesni_store_keys(const __m128i roundKeys[15],
+                                                                    uint8_t roundKeyBytes[240]) {
+    int i;
+
+    for (i = 0; i < 15; ++i)
+        _mm_storeu_si128((__m128i *) &roundKeyBytes[16 * i], roundKeys[i]);
+}
+
 static TGCRYPTO_AESNI_TARGET __m128i tgcrypto_aesni_decrypt_block(__m128i block, const __m128i roundKeys[15]) {
     int i;
 
