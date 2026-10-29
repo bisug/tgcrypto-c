@@ -11,8 +11,8 @@
 The PyPI distribution is [`tgcrypto-c`](https://pypi.org/project/tgcrypto-c/);
 the Python import remains `tgcrypto`.
 
-> **Linux only:** this release supports Linux x86_64 and ARM64. Windows and
-> macOS wheels are not provided or supported.
+> **Platforms:** Linux (x86_64, ARM64), macOS (Intel, Apple Silicon) and
+> Windows (AMD64). Wheels are built and tested on each platform.
 
 > [!NOTE]
 > The implementations of the algorithms presented in this repository are to be considered for educational purposes only.
@@ -30,12 +30,12 @@ namely:
 ## Requirements
 
 - Python 3.9 or higher.
-- A Linux C compiler (the extension is compiled from source when a wheel is
-  unavailable).
+- A C compiler (the extension is compiled from source when no wheel is
+  available for your platform).
 
 ## Installation
 
-Prebuilt Linux wheels are published on
+Prebuilt wheels for Linux, macOS and Windows are published on
 [PyPI](https://pypi.org/project/tgcrypto-c/).
 
 ### pip
@@ -192,7 +192,7 @@ test machine because memory bandwidth becomes the limit.
 | Output compatibility | — | Cryptographic output is **bit-for-bit identical** to the original |
 | API | Six functions | **Unchanged** — drop-in compatible with Pyrogram and Kurigram |
 | Extras | — | Reusable streaming contexts, type stubs |
-| CI | — | Test matrix 3.9–3.15; Linux wheels built for x86_64 and ARM64 |
+| CI | — | Test matrix 3.9–3.15; wheels for Linux (x86_64, ARM64), macOS (Intel, Apple Silicon) and Windows (AMD64) |
 | License | LGPLv3+ | LGPLv3+ |
 
 Upstream ships a software-only build, so the AES-NI path is what separates the
