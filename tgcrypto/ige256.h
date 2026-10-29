@@ -21,6 +21,12 @@
 #ifndef IGE256_H
 #define IGE256_H
 
+typedef struct tgcrypto_aes_context tgcrypto_aes_context;
+
+void ige256_ctx(const uint8_t in[], uint8_t out[], uint32_t length,
+                const tgcrypto_aes_context *context, const uint8_t iv[32],
+                uint8_t encrypt);
+
 void ige256(const uint8_t in[], uint8_t out[], uint32_t length, const uint8_t key[32], const uint8_t iv[32],
             uint8_t encrypt);
 

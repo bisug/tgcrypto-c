@@ -18,26 +18,20 @@
  * along with Pyrogram.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "aes256.h"
-#include "aesni.h"
+#include "aes_context.h"
 
-void cbc256(const uint8_t in[], uint8_t out[], uint32_t length, const uint8_t key[32], uint8_t iv[16],
-            uint8_t encrypt) {
+void cbc256_ctx(const uint8_t in[], uint8_t out[], uint32_t length,
+        const tgcrypto_aes_context *context, uint8_t iv[16],
+        uint8_t encrypt) {
     uint8_t nextIv[AES_BLOCK_SIZE];
-    uint32_t expandedKey[EXPANDED_KEY_SIZE];
     uint32_t i, j;
 
     /* The AES-NI path reads the input directly and builds its round keys with
      * AES instructions; the software path below copies in -> out first and
      * needs the table-based expanded key. */
 #if TGCRYPTO_AESNI
-    if (tgcrypto_aesni_available()) {
-        __m128i roundKeys[15];
+    if (context->use_aesni) {
         __m128i ivm, next, t;
-
-        tgcrypto_aesni_expand_key(key, expandedKey, (uint8_t) (encrypt ? 0 : 1));
-
-        tgcrypto_aesni_load_round_keys(expandedKey, roundKeys);
 
         if (encrypt) {
             ivm = _mm_loadu_si128((const __m128i *) iv);
@@ -45,7 +39,7 @@ void cbc256(const uint8_t in[], uint8_t out[], uint32_t length, const uint8_t ke
             for (i = 0; i < length; i += AES_BLOCK_SIZE) {
                 t = _mm_loadu_si128((const __m128i *) &in[i]);
                 t = _mm_xor_si128(t, ivm);
-                t = tgcrypto_aesni_encrypt_block(t, roundKeys);
+                t = tgcrypto_aesni_encrypt_block(t, context->roundKeys);
                 _mm_storeu_si128((__m128i *) &out[i], t);
                 ivm = t;
             }
@@ -54,7 +48,7 @@ void cbc256(const uint8_t in[], uint8_t out[], uint32_t length, const uint8_t ke
 
             for (i = 0; i < length; i += AES_BLOCK_SIZE) {
                 next = _mm_loadu_si128((const __m128i *) &in[i]);
-                t = tgcrypto_aesni_decrypt_block(next, roundKeys);
+                t = tgcrypto_aesni_decrypt_block(next, context->roundKeys);
                 t = _mm_xor_si128(t, ivm);
                 _mm_storeu_si128((__m128i *) &out[i], t);
                 ivm = next;
@@ -62,9 +56,6 @@ void cbc256(const uint8_t in[], uint8_t out[], uint32_t length, const uint8_t ke
         }
 
         _mm_storeu_si128((__m128i *) iv, ivm);
-
-        tgcrypto_wipe(roundKeys, sizeof(roundKeys));
-        tgcrypto_wipe(expandedKey, sizeof(expandedKey));
 
         return;
     }
@@ -76,21 +67,17 @@ void cbc256(const uint8_t in[], uint8_t out[], uint32_t length, const uint8_t ke
     memcpy(out, in, length);
 
     if (encrypt) {
-        aes256_set_encryption_key(key, expandedKey);
-
         for (i = 0; i < length; i += AES_BLOCK_SIZE) {
             for (j = 0; j < AES_BLOCK_SIZE; ++j)
                 out[i + j] ^= iv[j];
 
-            aes256_encrypt(&out[i], &out[i], expandedKey);
+            aes256_encrypt(&out[i], &out[i], context->expandedKey);
             memcpy(iv, &out[i], AES_BLOCK_SIZE);
         }
     } else {
-        aes256_set_decryption_key(key, expandedKey);
-
         for (i = 0; i < length; i += AES_BLOCK_SIZE) {
             memcpy(nextIv, &out[i], AES_BLOCK_SIZE);
-            aes256_decrypt(&out[i], &out[i], expandedKey);
+            aes256_decrypt(&out[i], &out[i], context->expandedKey);
 
             for (j = 0; j < AES_BLOCK_SIZE; ++j)
                 out[i + j] ^= iv[j];
@@ -100,5 +87,13 @@ void cbc256(const uint8_t in[], uint8_t out[], uint32_t length, const uint8_t ke
     }
 
     tgcrypto_wipe(nextIv, sizeof(nextIv));
-    tgcrypto_wipe(expandedKey, sizeof(expandedKey));
+}
+
+void cbc256(const uint8_t in[], uint8_t out[], uint32_t length,
+            const uint8_t key[32], uint8_t iv[16], uint8_t encrypt) {
+    tgcrypto_aes_context context;
+
+    tgcrypto_aes_context_init(&context, key, (uint8_t) (encrypt ? 0 : 1));
+    cbc256_ctx(in, out, length, &context, iv, encrypt);
+    tgcrypto_aes_context_wipe(&context);
 }
