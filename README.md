@@ -149,7 +149,8 @@ software code path is used.
 
 ## API
 
-TgCrypto API consists of these six methods:
+The legacy TgCrypto API consists of these six methods. Reusable context APIs
+are also available for stateful workloads:
 
 ```python
 def ige256_encrypt(data: bytes, key: bytes, iv: bytes) -> bytes: ...
