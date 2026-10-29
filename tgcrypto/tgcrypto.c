@@ -30,7 +30,7 @@
 #include "ctr256.h"
 #include "cbc256.h"
 
-#define TGCRYPTO_VERSION "1.2.5"
+#define TGCRYPTO_VERSION "1.3.0"
 
 #define DESCRIPTION "Fast and Portable Cryptography Extension Library for Pyrogram\n" \
     "TgCrypto is part of Pyrogram, a Telegram MTProto library for Python\n" \

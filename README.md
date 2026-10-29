@@ -1,19 +1,24 @@
+# TgCrypto C
 # TgCrypto
 
 > [!NOTE]
-> This is a maintained fork of [pyrogram/tgcrypto](https://github.com/pyrogram/tgcrypto).
+> This is a maintained fork of [pyrogram/tgcrypto](https://github.com/pyrogram/tgcrypto)
+> for [Pyrogram](https://github.com/pyrogram/pyrogram) and
+> [Kurigram](https://kurigram.icu/).
 > It keeps the original API fully compatible and adds modernized packaging, support for
 > Python 3.9–3.15, and optional AES-NI hardware acceleration (see
 > [Performance](#performance)).
+
+The PyPI distribution is `tgcrypto-c`; the Python import remains `tgcrypto`.
 
 > [!NOTE]
 > The implementations of the algorithms presented in this repository are to be considered for educational purposes only.
 
 > Fast and Portable Cryptography Extension Library for Pyrogram
 
-**TgCrypto** is a Cryptography Library written in C as a Python extension. It is designed to be portable, fast,
-easy to install and use. TgCrypto is intended for [Pyrogram](https://github.com/pyrogram/pyrogram) and implements the
-cryptographic algorithms Telegram requires, namely:
+**TgCrypto C** is a cryptography library written in C as a Python extension. It is designed to be portable, fast,
+and easy to install and use with Pyrogram and Kurigram. It implements the cryptographic algorithms Telegram requires,
+namely:
 
 - **`AES-256-IGE`** - used in [MTProto v2.0](https://core.telegram.org/mtproto).
 - **`AES-256-CTR`** - used for [CDN encrypted files](https://core.telegram.org/cdn).
@@ -145,7 +150,7 @@ cost.
 | Speed on AES-NI CPUs | Baseline | ~**4–6× faster** for IGE/CTR on large buffers |
 | Speed without AES-NI / non-x86 | — | Identical (same software code path, bit-for-bit) |
 | Output compatibility | — | Cryptographic output is **bit-for-bit identical** to the original |
-| API | Six functions | **Unchanged** — drop-in compatible |
+| API | Six functions | **Unchanged** — drop-in compatible with Pyrogram and Kurigram |
 | CI | — | Test matrix 3.9–3.15; wheels built for Linux (x86_64, ARM64), macOS (Intel, Apple Silicon) and Windows |
 | License | LGPLv3+ | LGPLv3+ |
 
@@ -340,13 +345,13 @@ print(data == cbc_decrypted)  # True
 for Passport). The surrounding protocol — `msg_key` derivation
 (`SHA256(authKey[88+x:88+x+32] || plaintext)[8:24]`, `x=0`/`x=8`), KDF into
 `aes_key`/`aes_iv`, padding `12..1024` bytes, `msg_id`/`seqno` checks,
-RSA/DH handshake, SRP 2FA — belongs in the client layer (e.g. Pyrogram),
+RSA/DH handshake, SRP 2FA — belongs in the client layer (e.g. Pyrogram or Kurigram),
 not here. `ige256_decrypt` does not verify `msg_key`; callers must.
 
 ## Testing
 
 1. Clone this repository: `git clone https://github.com/bisug/tgcrypto-c`.
-2. Enter the directory: `cd tgcrypto`.
+2. Enter the directory: `cd tgcrypto-c`.
 3. Install the test dependencies: `pip3 install pytest pycryptodome cryptography`
    (`pycryptodome`/`cryptography` are used as independent reference primitives by
    the known-answer tests; without them those tests skip silently.)
