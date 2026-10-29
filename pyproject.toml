@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tgcrypto-c"
-version = "1.3.0"
+version = "1.3.1"
 description = "Fast C-backed AES-256 IGE, CTR, and CBC extension for Pyrogram and Kurigram"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -46,9 +46,6 @@ classifiers = [
 
 [project.urls]
 Homepage = "https://github.com/bisug/tgcrypto-c"
-Documentation = "https://docs.pyrogram.org"
-Kurigram = "https://kurigram.icu/"
-KurigramSource = "https://github.com/kurigram-org/kurigram"
 Tracker = "https://github.com/bisug/tgcrypto-c/issues"
 Community = "https://t.me/pyrogram"
 Source = "https://github.com/bisug/tgcrypto-c"

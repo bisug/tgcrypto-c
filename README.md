@@ -411,6 +411,29 @@ not here. `ige256_decrypt` does not verify `msg_key`; callers must.
    the known-answer tests; without them those tests skip silently.)
 4. Run tests: `pytest`.
 
+## Changelog
+
+### 1.3.1
+
+* **Fix a memory-alignment bug in the AES-NI key schedule.** `tgcrypto_aes_context`
+  stored its round keys as `__m128i`, which requires 16-byte alignment, but it is
+  embedded in a Python object and CPython's allocator only guarantees 8-byte
+  alignment on 32-bit targets. The compiler was therefore free to emit aligned
+  16-byte moves that wrote past the allocation. Round keys are now held as bytes
+  and loaded with unaligned accesses, so the context has no alignment
+  requirement. This crashed with an access violation (`0xC0000005`) on 32-bit
+  Windows and was latent undefined behaviour on every platform.
+* Build wheels for Linux (x86_64, ARM64), macOS (Intel, Apple Silicon) and
+  Windows (AMD64 and 32-bit).
+
+### 1.3.0
+
+* Add reusable streaming contexts: `CTRContext`, `IGEContext` and `CBCContext`.
+  They expand the key once and keep the chaining state between calls, which is
+  roughly 3x faster than the one-shot functions on 16-byte messages.
+* Add type stubs (`tgcrypto.pyi`) and `Typing :: Typed`.
+* Publish as `tgcrypto-c` on PyPI; the `tgcrypto` import is unchanged.
+
 ## License
 
 [LGPLv3+](COPYING.lesser) © 2017-present [Dan](https://github.com/delivrance)

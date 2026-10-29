@@ -281,7 +281,7 @@ class TestEdgeLengths(unittest.TestCase):
 
 class TestModuleMetadata(unittest.TestCase):
     def test_version_matches(self):
-        self.assertEqual(tgcrypto.__version__, "1.3.0")
+        self.assertEqual(tgcrypto.__version__, "1.3.1")
 
     def test_ctr_decrypt_is_own_function(self):
         self.assertEqual(tgcrypto.ctr256_decrypt.__name__, "ctr256_decrypt")
