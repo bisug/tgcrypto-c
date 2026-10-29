@@ -72,83 +72,87 @@ throughput scales with cores. Measure that with:
 $ python benchmarks/bench_threads.py
 ```
 
-To build without the hardware acceleration path, define `TGCRYPTO_NO_AESNI`:
+To build without the hardware acceleration path, define `TGCRYPTO_NO_AESNI`.
+Note that setting `CFLAGS` replaces the compiler's default flags, so keep `-O2`:
 
 ``` bash
-$ CFLAGS="-DTGCRYPTO_NO_AESNI" pip3 install git+https://github.com/bisug/tgcrypto-c
+$ CFLAGS="-DTGCRYPTO_NO_AESNI -O2" pip3 install git+https://github.com/bisug/tgcrypto-c
 ```
 
-For a maximum-speed local build (GCC/Clang only), opt in to heavier
-optimization — kept out of the default build:
+Passing heavier flags through `CFLAGS` is possible, but measurements on the
+reference machine showed no consistent gain from `-O3 -flto` over the default
+build, so it is left out:
 
 ``` bash
 $ CFLAGS="-O3 -flto" pip3 install git+https://github.com/bisug/tgcrypto-c
 ```
 
+Benchmark before adopting any such flags; the default build is already the
+fast path on AES-NI hardware.
+
 Note the portable table-based AES implementation is functionally correct but
 not hardened against cache-timing side channels; the AES-NI path
 (constant-time instructions, used automatically when available) is preferred.
 
-Per-call overhead matters as much as bulk throughput: MTProto encrypts many
-small messages (a 16-byte payload is a single AES block), so the fixed cost of
-every call — argument handling, key schedule and the key-material wipe —
-dominates at that size. Two further optimizations target that fixed cost:
+### Small-message cost
+
+MTProto encrypts many small messages (a 16-byte payload is a single AES block),
+so the fixed cost of every call — argument handling, key schedule and the
+key-material wipe — matters as much as bulk throughput. Optimizations targeting
+that fixed cost:
 
 * **Key-material wipe** (expanded key plus loaded round keys, ~500 bytes per
   call) is cleared with word-wide stores instead of a byte-wise volatile loop,
   which is ~8x cheaper while giving exactly the same guarantee.
 * **Key schedule** — on the AES-NI path the 60-word expanded key is generated
   with `aeskeygenassist`/`aesimc` instructions instead of the table-based
-  scalar routine, and the round keys are consumed directly from it. The scalar
-  schedule cost ~445 ns per call (encrypt) and ~630 ns (decrypt) on the
-  reference machine; the instruction-based one is a small fraction of that.
+  scalar routine.
 * **No redundant copy** — the AES-NI paths read the input buffer directly
   instead of first copying it into the output buffer, so large payloads are
   touched once rather than twice.
+* **Reusable contexts** — `CTRContext`, `IGEContext` and `CBCContext` expand
+  the key once and keep the chaining state between calls, which removes the
+  key schedule from every subsequent call.
 
-For repeated CTR chunks with the same key, use `CTRContext` to expand the key
-once and retain the counter state between calls. On a Python 3.15 x86-64
-build, this reduced 16-byte call time by about 3.4x and 1 KiB call time by
-about 1.75x in local measurements. Results depend on the CPU and compiler.
+### Measured performance
 
-Indicative, on a low-power Celeron N4120 with the AES-NI path active (best of
-5, one C call, so no Python overhead included):
+Indicative figures from a Python 3.15 Linux x86_64 build with AES-NI active
+(best of 7, single-threaded). Absolute numbers depend heavily on the CPU and
+compiler.
 
-| Operation | Before | After |
-|---|---|---|
-| AES-256-IGE encrypt, 16 B | 1742 ns | **984 ns** |
-| AES-256-IGE decrypt, 16 B | 1407 ns | **559 ns** |
-| AES-256-CTR encrypt, 16 B | 1401 ns | **713 ns** |
-| AES-256-IGE encrypt, 1 KiB | 4692 ns | **3510 ns** |
+1 MiB throughput, one-shot functions versus reusable contexts:
 
-The gain is per call, so it is largest for small messages (1.8–3x at a single
-block) and tapers off for large buffers (about 1.3–1.5x at 1 KiB), where AES
-throughput dominates instead.
+| Mode | One-shot | Context |
+|---|---:|---:|
+| AES-256-IGE encrypt | 666 MB/s | 653 MB/s |
+| AES-256-CBC encrypt | 692 MB/s | 691 MB/s |
+| AES-256-CTR encrypt | 1138 MB/s | **1243 MB/s** |
 
-Measured throughput of the Python API before/after the key-schedule and
-copy changes (same machine, alternating runs, best of 2 rounds, MB/s):
+16-byte calls, where the key schedule dominates:
 
-| Operation | Size | Before | After | Change |
-|---|---|---|---|---|
-| IGE encrypt | 16 B | 10 | 14 | +30% |
-| IGE decrypt | 16 B | 8 | 13 | +60% |
-| CBC decrypt | 16 B | 6 | 10 | +48% |
-| CBC encrypt | 16 B | 8 | 10 | +20% |
-| CTR encrypt | 16 B | 7 | 8 | +21% |
-| CBC decrypt | 1 KiB | 233 | 294 | +26% |
-| CTR encrypt | 1 KiB | 228 | 252 | +11% |
-| CBC decrypt | 1 MiB | 598 | 736 | +23% |
-| CTR encrypt | 1 MiB | 500 | 606 | +21% |
-| CBC encrypt | 1 MiB | 338 | 382 | +13% |
-| IGE encrypt/decrypt | 64 KiB – 1 MiB | 374–379 | 373–379 | ~0% |
+| Call | Time |
+|---|---:|
+| `ige256_encrypt` | 806 ns |
+| `cbc256_encrypt` | 882 ns |
+| `ctr256_encrypt` | 1068 ns |
+| `CTRContext.update` | **329 ns** |
 
-IGE on large buffers is deliberately unchanged: with a serial feedback chain
-each block depends on the previous one, so the mode is bound by AES round
-latency rather than throughput and no amount of key-schedule tuning helps.
-Because MTProto 2.0 derives a new AES key from the auth key and per-message
-`msg_key`, the legacy one-shot functions pay the key schedule cost on every
-call. For a logical stream with one key, the reusable context APIs avoid that
-cost.
+A reusable context is therefore ~3.2x faster than the one-shot function for
+16-byte CTR, and the gap disappears once payloads are large enough that AES
+throughput dominates.
+
+Thread scaling (1 MiB, 4 CPUs). Every mode call releases the GIL, so each
+thread runs its own buffer concurrently:
+
+| Mode | 1 thread | 2 threads | 4 threads |
+|---|---:|---:|---:|
+| CTR | 1114 MB/s | 2289 MB/s (2.05x) | 2899 MB/s (2.60x) |
+| IGE | 631 MB/s | 1249 MB/s (1.98x) | 2413 MB/s (3.82x) |
+| CBC | 670 MB/s | 1307 MB/s (1.95x) | 2465 MB/s (3.68x) |
+
+Even IGE scales: its chaining is serial *within* a call, but separate calls are
+independent. Beyond 2 threads the returns flatten on this 4-core, low-power
+test machine because memory bandwidth becomes the limit.
 
 ## Comparison with the original
 
@@ -158,23 +162,36 @@ cost.
 | Python support | 3.7 – 3.11 | **3.9 – 3.15** |
 | Packaging | `setup.py` | `pyproject.toml` (PEP 621) |
 | AES acceleration | Portable software implementation only | **AES-NI hardware acceleration** (runtime-detected) with software fallback |
-| Speed on AES-NI CPUs | Baseline | ~**4–6× faster** for IGE/CTR on large buffers |
-| Speed without AES-NI / non-x86 | — | Identical (same software code path, bit-for-bit) |
+| Speed without AES-NI / non-x86 | Baseline | Identical (same software code path, bit-for-bit) |
 | Output compatibility | — | Cryptographic output is **bit-for-bit identical** to the original |
 | API | Six functions | **Unchanged** — drop-in compatible with Pyrogram and Kurigram |
+| Extras | — | Reusable streaming contexts, type stubs |
 | CI | — | Test matrix 3.9–3.15; Linux wheels built for x86_64 and ARM64 |
 | License | LGPLv3+ | LGPLv3+ |
 
-Indicative benchmark (AES-NI, 16 MB buffers, best of 5):
+Upstream ships a software-only build, so the AES-NI path is what separates the
+two. Measured on the same machine, same interpreter, same buffers (1 MiB,
+best of 7, alternating runs):
 
-| Operation | Original | This fork |
-|---|---|---|
-| AES-256-IGE encrypt | 59 MB/s | 247 MB/s |
-| AES-256-CTR encrypt | 46 MB/s | 284 MB/s |
+| Operation | Original | This fork | Difference |
+|---|---:|---:|---:|
+| AES-256-IGE encrypt | 101 MB/s | 664 MB/s | ~6.6x |
+| AES-256-CTR encrypt | 84 MB/s | 1230 MB/s | ~14.7x |
+| AES-256-CBC encrypt | 101 MB/s | 694 MB/s | ~6.9x |
 
-Actual gains scale with CPU speed. On CPUs without AES-NI (or when built with
-`TGCRYPTO_NO_AESNI`), performance matches the original exactly, since the same
-software code path is used.
+The speedup varies by mode because the two implementations have different
+per-block costs. Encryption and decryption are equally affected.
+
+When built with `TGCRYPTO_NO_AESNI`, this fork matches the original almost
+exactly, confirming that the gain comes from the hardware path and not from
+changes to the algorithms:
+
+| Operation | Original | This fork (no AES-NI) |
+|---|---:|---:|
+| AES-256-IGE encrypt | 101 MB/s | 103 MB/s |
+| AES-256-CTR encrypt | 83 MB/s | 83 MB/s |
+| AES-256-CBC encrypt | 102 MB/s | 109 MB/s |
+
 
 ## API
 
