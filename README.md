@@ -27,6 +27,19 @@ cryptographic algorithms Telegram requires, namely:
 ## Installation
 
 ``` bash
+$ python -m pip install -U tgcrypto-c
+```
+
+The distribution is named `tgcrypto-c`; existing code continues to use the
+`tgcrypto` import:
+
+``` python
+import tgcrypto
+```
+
+To install directly from source:
+
+``` bash
 $ pip3 install -U git+https://github.com/bisug/tgcrypto
 ```
 
