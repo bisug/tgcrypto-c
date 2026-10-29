@@ -25,6 +25,7 @@
 #include <limits.h>
 #include <stdint.h>
 
+#include "aes_context.h"
 #include "aes256.h"
 #include "ige256.h"
 #include "ctr256.h"
@@ -269,6 +270,111 @@ static PyObject *cbc256_decrypt(PyObject *self, PyObject *args) {
     return cbc(args, 0);
 }
 
+typedef struct {
+    PyObject_HEAD
+    tgcrypto_aes_context aes;
+    uint8_t iv[16];
+    uint8_t state;
+} CTRContextObject;
+
+static int ctr_context_init(CTRContextObject *self, PyObject *args, PyObject *kwargs) {
+    Py_buffer key, iv;
+    int state = 0;
+    static char *keywords[] = {"key", "iv", "state", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "y*y*|i:CTRContext",
+                                     keywords, &key, &iv, &state))
+        return -1;
+
+    if (key.len != 32) {
+        PyBuffer_Release(&key);
+        PyBuffer_Release(&iv);
+        PyErr_SetString(PyExc_ValueError, "Key size must be exactly 32 bytes");
+        return -1;
+    }
+
+    if (iv.len != 16) {
+        PyBuffer_Release(&key);
+        PyBuffer_Release(&iv);
+        PyErr_SetString(PyExc_ValueError, "IV size must be exactly 16 bytes");
+        return -1;
+    }
+
+    if (state < 0 || state > 15) {
+        PyBuffer_Release(&key);
+        PyBuffer_Release(&iv);
+        PyErr_SetString(PyExc_ValueError, "State value must be in the range [0, 15]");
+        return -1;
+    }
+
+    tgcrypto_aes_context_init(&self->aes, key.buf, 0);
+    memcpy(self->iv, iv.buf, sizeof(self->iv));
+    self->state = (uint8_t) state;
+
+    PyBuffer_Release(&key);
+    PyBuffer_Release(&iv);
+    return 0;
+}
+
+static void ctr_context_dealloc(CTRContextObject *self) {
+    tgcrypto_aes_context_wipe(&self->aes);
+    tgcrypto_wipe(self->iv, sizeof(self->iv));
+    Py_TYPE(self)->tp_free((PyObject *) self);
+}
+
+static PyObject *ctr_context_update(CTRContextObject *self, PyObject *args) {
+    Py_buffer data;
+    PyObject *out;
+
+    if (!PyArg_ParseTuple(args, "y*:update", &data))
+        return NULL;
+
+    if (data.len == 0) {
+        PyBuffer_Release(&data);
+        PyErr_SetString(PyExc_ValueError, "Data must not be empty");
+        return NULL;
+    }
+
+    if ((uint64_t) data.len > (uint64_t) UINT32_MAX) {
+        PyBuffer_Release(&data);
+        PyErr_SetString(PyExc_ValueError, "Data is too large (max 4294967295 bytes)");
+        return NULL;
+    }
+
+    out = PyBytes_FromStringAndSize(NULL, data.len);
+
+    if (out == NULL) {
+        PyBuffer_Release(&data);
+        return NULL;
+    }
+
+    Py_BEGIN_ALLOW_THREADS
+        ctr256_ctx(data.buf, (uint8_t *) PyBytes_AS_STRING(out),
+                   (uint32_t) data.len, &self->aes, self->iv, &self->state);
+    Py_END_ALLOW_THREADS
+
+    PyBuffer_Release(&data);
+    return out;
+}
+
+static PyMethodDef ctr_context_methods[] = {
+    {"update", (PyCFunction) ctr_context_update, METH_VARARGS,
+     "update(data) -> bytes\n--\n\nEncrypt or decrypt the next data chunk."},
+    {NULL}
+};
+
+static PyTypeObject CTRContextType = {
+    PyVarObject_HEAD_INIT(NULL, 0)
+    .tp_name = "tgcrypto.CTRContext",
+    .tp_doc = "Reusable AES-256-CTR context.",
+    .tp_basicsize = sizeof(CTRContextObject),
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_methods = ctr_context_methods,
+    .tp_init = (initproc) ctr_context_init,
+    .tp_new = PyType_GenericNew,
+    .tp_dealloc = (destructor) ctr_context_dealloc,
+};
+
 PyDoc_STRVAR(
     ige256_encrypt_docs,
     "ige256_encrypt(data, key, iv)\n"
@@ -344,6 +450,18 @@ PyMODINIT_FUNC PyInit_tgcrypto(void) {
         return NULL;
 
     if (PyModule_AddStringConstant(m, "__version__", TGCRYPTO_VERSION) < 0) {
+        Py_DECREF(m);
+        return NULL;
+    }
+
+    if (PyType_Ready(&CTRContextType) < 0) {
+        Py_DECREF(m);
+        return NULL;
+    }
+
+    Py_INCREF(&CTRContextType);
+    if (PyModule_AddObject(m, "CTRContext", (PyObject *) &CTRContextType) < 0) {
+        Py_DECREF(&CTRContextType);
         Py_DECREF(m);
         return NULL;
     }

@@ -118,6 +118,49 @@ class TestStreamingMutation(unittest.TestCase):
             tgcrypto.cbc256_decrypt(combined, key, bytearray(start)), data)
 
 
+class TestCTRContext(unittest.TestCase):
+    def test_context_matches_streaming_function(self):
+        key = os.urandom(32)
+        iv = os.urandom(16)
+        data = os.urandom(1000)
+        expected_iv = bytearray(iv)
+        expected_state = bytearray(1)
+        expected = b"".join(
+            tgcrypto.ctr256_encrypt(data[i:i + 100], key, expected_iv, expected_state)
+            for i in range(0, len(data), 100)
+        )
+
+        context = tgcrypto.CTRContext(key, iv)
+        actual = b"".join(
+            context.update(data[i:i + 100]) for i in range(0, len(data), 100)
+        )
+
+        self.assertEqual(actual, expected)
+
+    def test_context_roundtrip_from_nonzero_state(self):
+        key = os.urandom(32)
+        iv = os.urandom(16)
+        data = os.urandom(257)
+        encrypted = tgcrypto.CTRContext(key, iv, 7).update(data)
+        decrypted = tgcrypto.CTRContext(key, iv, 7).update(encrypted)
+        self.assertEqual(decrypted, data)
+
+    def test_context_rejects_invalid_parameters(self):
+        with self.assertRaises(ValueError):
+            tgcrypto.CTRContext(bytes(31), bytes(16))
+        with self.assertRaises(ValueError):
+            tgcrypto.CTRContext(bytes(32), bytes(15))
+        with self.assertRaises(ValueError):
+            tgcrypto.CTRContext(bytes(32), bytes(16), 16)
+        with self.assertRaises(ValueError):
+            tgcrypto.CTRContext(bytes(32), bytes(16), -1)
+
+    def test_context_rejects_empty_data(self):
+        context = tgcrypto.CTRContext(bytes(32), bytes(16))
+        with self.assertRaises(ValueError):
+            context.update(b"")
+
+
 class TestIGEKnownAnswer(unittest.TestCase):
     # Hand-verifiable KAT for the software fallback: single-block IGE must
     # equal plain AES-ECB wrapped in the IGE chaining XORs:
