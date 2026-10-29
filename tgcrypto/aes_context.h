@@ -21,6 +21,7 @@ static inline void tgcrypto_aes_context_init(tgcrypto_aes_context *context,
     if (context->use_aesni) {
         tgcrypto_aesni_expand_key(key, context->expandedKey, decrypt);
         tgcrypto_aesni_load_round_keys(context->expandedKey, context->roundKeys);
+        tgcrypto_wipe(context->expandedKey, sizeof(context->expandedKey));
         return;
     }
 #endif
