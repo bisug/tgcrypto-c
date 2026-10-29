@@ -64,6 +64,14 @@ Run the local benchmark with:
 ``` bash
 $ python benchmarks/bench_modes.py
 ```
+
+Every mode call releases the GIL, so Python threads run AES concurrently and
+throughput scales with cores. Measure that with:
+
+``` bash
+$ python benchmarks/bench_threads.py
+```
+
 To build without the hardware acceleration path, define `TGCRYPTO_NO_AESNI`:
 
 ``` bash
