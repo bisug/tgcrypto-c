@@ -36,6 +36,11 @@
     "TgCrypto is part of Pyrogram, a Telegram MTProto library for Python\n" \
     "You can learn more about Pyrogram here: https://pyrogram.org\n"
 
+/* Releasing the GIL costs tens of nanoseconds. For small buffers the AES work
+ * is shorter than that, so only release for large payloads where other Python
+ * threads benefit from running concurrently. */
+#define TGCRYPTO_GIL_THRESHOLD 8192
+
 static void release3(Py_buffer *a, Py_buffer *b, Py_buffer *c) {
     PyBuffer_Release(a);
     PyBuffer_Release(b);
@@ -49,13 +54,48 @@ static void release4(Py_buffer *a, Py_buffer *b, Py_buffer *c, Py_buffer *d) {
     PyBuffer_Release(d);
 }
 
-static PyObject *ige(PyObject *args, uint8_t encrypt) {
+/* Fetch a bytes-like argument as a contiguous buffer, matching the old
+ * PyArg_ParseTuple "y*" behaviour (including the TypeError on non-buffers). */
+static int get_buffer(PyObject *obj, Py_buffer *view) {
+    if (PyObject_GetBuffer(obj, view, PyBUF_SIMPLE) < 0) {
+        /* PyObject_GetBuffer already sets a TypeError; keep it. */
+        return -1;
+    }
+    return 0;
+}
+
+static PyObject *arg_count_error(Py_ssize_t expected, Py_ssize_t given) {
+    PyErr_Format(PyExc_TypeError,
+                 "function takes exactly %zd arguments (%zd given)",
+                 expected, given);
+    return NULL;
+}
+
+static PyObject *update_arg_count_error(Py_ssize_t given) {
+    PyErr_Format(PyExc_TypeError,
+                 "update() takes exactly 1 argument (%zd given)", given);
+    return NULL;
+}
+
+static PyObject *ige(PyObject *const *args, Py_ssize_t nargs, uint8_t encrypt) {
     Py_buffer data, key, iv;
     PyObject *out;
     Py_ssize_t n;
 
-    if (!PyArg_ParseTuple(args, "y*y*y*", &data, &key, &iv))
+    if (nargs != 3)
+        return arg_count_error(3, nargs);
+
+    if (get_buffer(args[0], &data) < 0)
         return NULL;
+    if (get_buffer(args[1], &key) < 0) {
+        PyBuffer_Release(&data);
+        return NULL;
+    }
+    if (get_buffer(args[2], &iv) < 0) {
+        PyBuffer_Release(&data);
+        PyBuffer_Release(&key);
+        return NULL;
+    }
 
     if (data.len == 0) {
         release3(&data, &key, &iv);
@@ -98,30 +138,52 @@ static PyObject *ige(PyObject *args, uint8_t encrypt) {
         return NULL;
     }
 
-    Py_BEGIN_ALLOW_THREADS
+    if (n >= TGCRYPTO_GIL_THRESHOLD) {
+        Py_BEGIN_ALLOW_THREADS
+            ige256(data.buf, (uint8_t *) PyBytes_AS_STRING(out), (uint32_t) n, key.buf, iv.buf, encrypt);
+        Py_END_ALLOW_THREADS
+    } else {
         ige256(data.buf, (uint8_t *) PyBytes_AS_STRING(out), (uint32_t) n, key.buf, iv.buf, encrypt);
-    Py_END_ALLOW_THREADS
+    }
 
     release3(&data, &key, &iv);
 
     return out;
 }
 
-static PyObject *ige256_encrypt(PyObject *self, PyObject *args) {
-    return ige(args, 1);
+static PyObject *ige256_encrypt(PyObject *self, PyObject *const *args, Py_ssize_t nargs) {
+    return ige(args, nargs, 1);
 }
 
-static PyObject *ige256_decrypt(PyObject *self, PyObject *args) {
-    return ige(args, 0);
+static PyObject *ige256_decrypt(PyObject *self, PyObject *const *args, Py_ssize_t nargs) {
+    return ige(args, nargs, 0);
 }
 
-static PyObject *ctr(PyObject *args) {
+static PyObject *ctr(PyObject *const *args, Py_ssize_t nargs) {
     Py_buffer data, key, iv, state;
     PyObject *out;
     Py_ssize_t n;
 
-    if (!PyArg_ParseTuple(args, "y*y*y*y*", &data, &key, &iv, &state))
+    if (nargs != 4)
+        return arg_count_error(4, nargs);
+
+    if (get_buffer(args[0], &data) < 0)
         return NULL;
+    if (get_buffer(args[1], &key) < 0) {
+        PyBuffer_Release(&data);
+        return NULL;
+    }
+    if (get_buffer(args[2], &iv) < 0) {
+        PyBuffer_Release(&data);
+        PyBuffer_Release(&key);
+        return NULL;
+    }
+    if (get_buffer(args[3], &state) < 0) {
+        PyBuffer_Release(&data);
+        PyBuffer_Release(&key);
+        PyBuffer_Release(&iv);
+        return NULL;
+    }
 
     if (data.len == 0) {
         release4(&data, &key, &iv, &state);
@@ -178,31 +240,47 @@ static PyObject *ctr(PyObject *args) {
         return NULL;
     }
 
-    Py_BEGIN_ALLOW_THREADS
+    if (n >= TGCRYPTO_GIL_THRESHOLD) {
+        Py_BEGIN_ALLOW_THREADS
+            ctr256(data.buf, (uint8_t *) PyBytes_AS_STRING(out), (uint32_t) n, key.buf, iv.buf, state.buf);
+        Py_END_ALLOW_THREADS
+    } else {
         ctr256(data.buf, (uint8_t *) PyBytes_AS_STRING(out), (uint32_t) n, key.buf, iv.buf, state.buf);
-    Py_END_ALLOW_THREADS
+    }
 
     release4(&data, &key, &iv, &state);
 
     return out;
 }
 
-static PyObject *ctr256_encrypt(PyObject *self, PyObject *args) {
-    return ctr(args);
+static PyObject *ctr256_encrypt(PyObject *self, PyObject *const *args, Py_ssize_t nargs) {
+    return ctr(args, nargs);
 }
 
-static PyObject *ctr256_decrypt(PyObject *self, PyObject *args) {
+static PyObject *ctr256_decrypt(PyObject *self, PyObject *const *args, Py_ssize_t nargs) {
     /* CTR encryption and decryption are the same XOR operation. */
-    return ctr(args);
+    return ctr(args, nargs);
 }
 
-static PyObject *cbc(PyObject *args, uint8_t encrypt) {
+static PyObject *cbc(PyObject *const *args, Py_ssize_t nargs, uint8_t encrypt) {
     Py_buffer data, key, iv;
     PyObject *out;
     Py_ssize_t n;
 
-    if (!PyArg_ParseTuple(args, "y*y*y*", &data, &key, &iv))
+    if (nargs != 3)
+        return arg_count_error(3, nargs);
+
+    if (get_buffer(args[0], &data) < 0)
         return NULL;
+    if (get_buffer(args[1], &key) < 0) {
+        PyBuffer_Release(&data);
+        return NULL;
+    }
+    if (get_buffer(args[2], &iv) < 0) {
+        PyBuffer_Release(&data);
+        PyBuffer_Release(&key);
+        return NULL;
+    }
 
     if (data.len == 0) {
         release3(&data, &key, &iv);
@@ -252,21 +330,25 @@ static PyObject *cbc(PyObject *args, uint8_t encrypt) {
         return NULL;
     }
 
-    Py_BEGIN_ALLOW_THREADS
+    if (n >= TGCRYPTO_GIL_THRESHOLD) {
+        Py_BEGIN_ALLOW_THREADS
+            cbc256(data.buf, (uint8_t *) PyBytes_AS_STRING(out), (uint32_t) n, key.buf, iv.buf, encrypt);
+        Py_END_ALLOW_THREADS
+    } else {
         cbc256(data.buf, (uint8_t *) PyBytes_AS_STRING(out), (uint32_t) n, key.buf, iv.buf, encrypt);
-    Py_END_ALLOW_THREADS
+    }
 
     release3(&data, &key, &iv);
 
     return out;
 }
 
-static PyObject *cbc256_encrypt(PyObject *self, PyObject *args) {
-    return cbc(args, 1);
+static PyObject *cbc256_encrypt(PyObject *self, PyObject *const *args, Py_ssize_t nargs) {
+    return cbc(args, nargs, 1);
 }
 
-static PyObject *cbc256_decrypt(PyObject *self, PyObject *args) {
-    return cbc(args, 0);
+static PyObject *cbc256_decrypt(PyObject *self, PyObject *const *args, Py_ssize_t nargs) {
+    return cbc(args, nargs, 0);
 }
 
 typedef struct {
@@ -321,11 +403,14 @@ static void ctr_context_dealloc(CTRContextObject *self) {
     Py_TYPE(self)->tp_free((PyObject *) self);
 }
 
-static PyObject *ctr_context_update(CTRContextObject *self, PyObject *args) {
+static PyObject *ctr_context_update(CTRContextObject *self, PyObject *const *args, Py_ssize_t nargs) {
     Py_buffer data;
     PyObject *out;
 
-    if (!PyArg_ParseTuple(args, "y*:update", &data))
+    if (nargs != 1)
+        return update_arg_count_error(nargs);
+
+    if (get_buffer(args[0], &data) < 0)
         return NULL;
 
     if (data.len == 0) {
@@ -347,17 +432,22 @@ static PyObject *ctr_context_update(CTRContextObject *self, PyObject *args) {
         return NULL;
     }
 
-    Py_BEGIN_ALLOW_THREADS
+    if (data.len >= TGCRYPTO_GIL_THRESHOLD) {
+        Py_BEGIN_ALLOW_THREADS
+            ctr256_ctx(data.buf, (uint8_t *) PyBytes_AS_STRING(out),
+                       (uint32_t) data.len, &self->aes, self->iv, &self->state);
+        Py_END_ALLOW_THREADS
+    } else {
         ctr256_ctx(data.buf, (uint8_t *) PyBytes_AS_STRING(out),
                    (uint32_t) data.len, &self->aes, self->iv, &self->state);
-    Py_END_ALLOW_THREADS
+    }
 
     PyBuffer_Release(&data);
     return out;
 }
 
 static PyMethodDef ctr_context_methods[] = {
-    {"update", (PyCFunction) ctr_context_update, METH_VARARGS,
+    {"update", (PyCFunction) ctr_context_update, METH_FASTCALL,
      "update(data) -> bytes\n--\n\nEncrypt or decrypt the next data chunk."},
     {NULL}
 };
@@ -413,11 +503,14 @@ static void ige_context_dealloc(IGEContextObject *self) {
     Py_TYPE(self)->tp_free((PyObject *) self);
 }
 
-static PyObject *ige_context_update(IGEContextObject *self, PyObject *args) {
+static PyObject *ige_context_update(IGEContextObject *self, PyObject *const *args, Py_ssize_t nargs) {
     Py_buffer data;
     PyObject *out;
 
-    if (!PyArg_ParseTuple(args, "y*:update", &data))
+    if (nargs != 1)
+        return update_arg_count_error(nargs);
+
+    if (get_buffer(args[0], &data) < 0)
         return NULL;
 
     if (data.len == 0 || data.len % 16 != 0) {
@@ -440,18 +533,24 @@ static PyObject *ige_context_update(IGEContextObject *self, PyObject *args) {
         return NULL;
     }
 
-    Py_BEGIN_ALLOW_THREADS
+    if (data.len >= TGCRYPTO_GIL_THRESHOLD) {
+        Py_BEGIN_ALLOW_THREADS
+            ige256_ctx(data.buf, (uint8_t *) PyBytes_AS_STRING(out),
+                       (uint32_t) data.len, &self->aes, self->iv,
+                       (uint8_t) !self->decrypt);
+        Py_END_ALLOW_THREADS
+    } else {
         ige256_ctx(data.buf, (uint8_t *) PyBytes_AS_STRING(out),
                    (uint32_t) data.len, &self->aes, self->iv,
                    (uint8_t) !self->decrypt);
-    Py_END_ALLOW_THREADS
+    }
 
     PyBuffer_Release(&data);
     return out;
 }
 
 static PyMethodDef ige_context_methods[] = {
-    {"update", (PyCFunction) ige_context_update, METH_VARARGS,
+    {"update", (PyCFunction) ige_context_update, METH_FASTCALL,
      "update(data) -> bytes\n--\n\nEncrypt or decrypt the next block-aligned data chunk."},
     {NULL}
 };
@@ -507,11 +606,14 @@ static void cbc_context_dealloc(CBCContextObject *self) {
     Py_TYPE(self)->tp_free((PyObject *) self);
 }
 
-static PyObject *cbc_context_update(CBCContextObject *self, PyObject *args) {
+static PyObject *cbc_context_update(CBCContextObject *self, PyObject *const *args, Py_ssize_t nargs) {
     Py_buffer data;
     PyObject *out;
 
-    if (!PyArg_ParseTuple(args, "y*:update", &data))
+    if (nargs != 1)
+        return update_arg_count_error(nargs);
+
+    if (get_buffer(args[0], &data) < 0)
         return NULL;
 
     if (data.len == 0 || data.len % 16 != 0) {
@@ -534,18 +636,24 @@ static PyObject *cbc_context_update(CBCContextObject *self, PyObject *args) {
         return NULL;
     }
 
-    Py_BEGIN_ALLOW_THREADS
+    if (data.len >= TGCRYPTO_GIL_THRESHOLD) {
+        Py_BEGIN_ALLOW_THREADS
+            cbc256_ctx(data.buf, (uint8_t *) PyBytes_AS_STRING(out),
+                       (uint32_t) data.len, &self->aes, self->iv,
+                       (uint8_t) !self->decrypt);
+        Py_END_ALLOW_THREADS
+    } else {
         cbc256_ctx(data.buf, (uint8_t *) PyBytes_AS_STRING(out),
                    (uint32_t) data.len, &self->aes, self->iv,
                    (uint8_t) !self->decrypt);
-    Py_END_ALLOW_THREADS
+    }
 
     PyBuffer_Release(&data);
     return out;
 }
 
 static PyMethodDef cbc_context_methods[] = {
-    {"update", (PyCFunction) cbc_context_update, METH_VARARGS,
+    {"update", (PyCFunction) cbc_context_update, METH_FASTCALL,
      "update(data) -> bytes\n--\n\nEncrypt or decrypt the next block-aligned data chunk."},
     {NULL}
 };
@@ -613,12 +721,12 @@ PyDoc_STRVAR(
 );
 
 static PyMethodDef methods[] = {
-    {"ige256_encrypt", (PyCFunction) ige256_encrypt, METH_VARARGS, ige256_encrypt_docs},
-    {"ige256_decrypt", (PyCFunction) ige256_decrypt, METH_VARARGS, ige256_decrypt_docs},
-    {"ctr256_encrypt", (PyCFunction) ctr256_encrypt, METH_VARARGS, ctr256_encrypt_docs},
-    {"ctr256_decrypt", (PyCFunction) ctr256_decrypt, METH_VARARGS, ctr256_decrypt_docs},
-    {"cbc256_encrypt", (PyCFunction) cbc256_encrypt, METH_VARARGS, cbc256_encrypt_docs},
-    {"cbc256_decrypt", (PyCFunction) cbc256_decrypt, METH_VARARGS, cbc256_decrypt_docs},
+    {"ige256_encrypt", (PyCFunction) ige256_encrypt, METH_FASTCALL, ige256_encrypt_docs},
+    {"ige256_decrypt", (PyCFunction) ige256_decrypt, METH_FASTCALL, ige256_decrypt_docs},
+    {"ctr256_encrypt", (PyCFunction) ctr256_encrypt, METH_FASTCALL, ctr256_encrypt_docs},
+    {"ctr256_decrypt", (PyCFunction) ctr256_decrypt, METH_FASTCALL, ctr256_decrypt_docs},
+    {"cbc256_encrypt", (PyCFunction) cbc256_encrypt, METH_FASTCALL, cbc256_encrypt_docs},
+    {"cbc256_decrypt", (PyCFunction) cbc256_decrypt, METH_FASTCALL, cbc256_decrypt_docs},
     {NULL}
 };
 

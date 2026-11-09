@@ -109,6 +109,32 @@ static TGCRYPTO_AESNI_TARGET __m128i tgcrypto_aesni_encrypt_block(__m128i block,
     return _mm_aesenclast_si128(block, roundKeys[14]);
 }
 
+/* Encrypt four independent blocks with rounds interleaved so AESENC latency
+ * overlaps across blocks. Used by CTR where consecutive counters are
+ * independent. */
+static TGCRYPTO_AESNI_TARGET void tgcrypto_aesni_encrypt_4blocks(
+    __m128i c0, __m128i c1, __m128i c2, __m128i c3,
+    const __m128i roundKeys[15],
+    __m128i *ks0, __m128i *ks1, __m128i *ks2, __m128i *ks3) {
+    int r;
+    __m128i b0 = _mm_xor_si128(c0, roundKeys[0]);
+    __m128i b1 = _mm_xor_si128(c1, roundKeys[0]);
+    __m128i b2 = _mm_xor_si128(c2, roundKeys[0]);
+    __m128i b3 = _mm_xor_si128(c3, roundKeys[0]);
+
+    for (r = 1; r < 14; ++r) {
+        b0 = _mm_aesenc_si128(b0, roundKeys[r]);
+        b1 = _mm_aesenc_si128(b1, roundKeys[r]);
+        b2 = _mm_aesenc_si128(b2, roundKeys[r]);
+        b3 = _mm_aesenc_si128(b3, roundKeys[r]);
+    }
+
+    *ks0 = _mm_aesenclast_si128(b0, roundKeys[14]);
+    *ks1 = _mm_aesenclast_si128(b1, roundKeys[14]);
+    *ks2 = _mm_aesenclast_si128(b2, roundKeys[14]);
+    *ks3 = _mm_aesenclast_si128(b3, roundKeys[14]);
+}
+
 /*
  * Copy serialized round keys into a local, naturally aligned array.
  *

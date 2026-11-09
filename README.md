@@ -137,11 +137,22 @@ that fixed cost:
 * **Reusable contexts** — `CTRContext`, `IGEContext` and `CBCContext` expand
   the key once and keep the chaining state between calls, which removes the
   key schedule from every subsequent call.
+* **Fastcall entry points** — all functions and `update` methods use
+  `METH_FASTCALL` instead of `METH_VARARGS`, avoiding tuple allocation and
+  `PyArg_ParseTuple` overhead on every call (~50 ns saved per small call).
+* **GIL threshold** — the GIL is only released for payloads of 8 KiB or more.
+  For smaller buffers the release/acquire cost exceeds the AES work, so the
+  call runs with the GIL held for lower latency. Large payloads still release
+  the GIL and scale across Python threads.
+* **CTR round interleaving** — the four CTR blocks are encrypted round-by-round
+  (round 1 for all four, then round 2, …) so AESENC latency overlaps across
+  blocks instead of stalling on one block's dependency chain (~20% faster
+  bulk CTR).
 
 ### Measured performance
 
 Every figure below comes from a low-power 4-core Intel Celeron N4120 with no
-AVX2 (AES-NI only), running a Python 3.15 Linux x86_64 build (best of 7,
+AVX2 (AES-NI only), running a Python 3.14 Linux x86_64 build (best of 7,
 single-threaded). Absolute throughput will differ substantially on server CPUs,
 and these numbers have not been verified there.
 
@@ -149,31 +160,31 @@ and these numbers have not been verified there.
 
 | Mode | One-shot | Context |
 |---|---:|---:|
-| AES-256-IGE encrypt | 666 MB/s | 653 MB/s |
-| AES-256-CBC encrypt | 692 MB/s | 691 MB/s |
-| AES-256-CTR encrypt | 1138 MB/s | **1243 MB/s** |
+| AES-256-IGE encrypt | 670 MB/s | 680 MB/s |
+| AES-256-CBC encrypt | 674 MB/s | 678 MB/s |
+| AES-256-CTR encrypt | 1572 MB/s | **1665 MB/s** |
 
 16-byte calls, where the key schedule dominates:
 
 | Call | Time |
 |---|---:|
-| `ige256_encrypt` | 806 ns |
-| `cbc256_encrypt` | 882 ns |
-| `ctr256_encrypt` | 1068 ns |
-| `CTRContext.update` | **329 ns** |
+| `ige256_encrypt` | 685 ns |
+| `cbc256_encrypt` | 723 ns |
+| `ctr256_encrypt` | 881 ns |
+| `CTRContext.update` | **171 ns** |
 
-A reusable context is therefore ~3.2x faster than the one-shot function for
+A reusable context is therefore ~5.2x faster than the one-shot function for
 16-byte CTR, and the gap disappears once payloads are large enough that AES
 throughput dominates.
 
-Thread scaling (1 MiB, 4 CPUs). Every mode call releases the GIL, so each
+Thread scaling (1 MiB, 4 CPUs). Large mode calls release the GIL, so each
 thread runs its own buffer concurrently:
 
 | Mode | 1 thread | 2 threads | 4 threads |
 |---|---:|---:|---:|
-| CTR | 1114 MB/s | 2289 MB/s (2.05x) | 2899 MB/s (2.60x) |
-| IGE | 631 MB/s | 1249 MB/s (1.98x) | 2413 MB/s (3.82x) |
-| CBC | 670 MB/s | 1307 MB/s (1.95x) | 2465 MB/s (3.68x) |
+| CTR | 1564 MB/s | 3116 MB/s (1.99x) | 4652 MB/s (2.97x) |
+| IGE | 648 MB/s | 1213 MB/s (1.87x) | 2429 MB/s (3.75x) |
+| CBC | 670 MB/s | 1257 MB/s (1.88x) | 1720 MB/s (2.57x) |
 
 Even IGE scales: its chaining is serial *within* a call, but separate calls are
 independent. Beyond 2 threads the returns flatten on this 4-core, low-power

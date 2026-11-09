@@ -68,10 +68,8 @@ void ctr256_ctx(const uint8_t in[], uint8_t out[], uint32_t length,
                     if (++iv[k])
                         break;
 
-                ks0 = tgcrypto_aesni_encrypt_block(c0, roundKeys);
-                ks1 = tgcrypto_aesni_encrypt_block(c1, roundKeys);
-                ks2 = tgcrypto_aesni_encrypt_block(c2, roundKeys);
-                ks3 = tgcrypto_aesni_encrypt_block(c3, roundKeys);
+                tgcrypto_aesni_encrypt_4blocks(c0, c1, c2, c3, roundKeys,
+                                               &ks0, &ks1, &ks2, &ks3);
 
                 x = _mm_loadu_si128((const __m128i *) &in[processed]);
                 _mm_storeu_si128((__m128i *) &out[processed], _mm_xor_si128(x, ks0));
