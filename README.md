@@ -89,8 +89,8 @@ Run the local benchmark with:
 $ python benchmarks/bench_modes.py
 ```
 
-Every mode call releases the GIL, so Python threads run AES concurrently and
-throughput scales with cores. Measure that with:
+Large mode calls (8 KiB or more) release the GIL, so Python threads run AES
+concurrently and throughput scales with cores. Measure that with:
 
 ``` bash
 $ python benchmarks/bench_threads.py
@@ -211,9 +211,9 @@ best of 7, alternating runs):
 
 | Operation | Original | This fork | Difference |
 |---|---:|---:|---:|
-| AES-256-IGE encrypt | 101 MB/s | 664 MB/s | ~6.6x |
-| AES-256-CTR encrypt | 84 MB/s | 1230 MB/s | ~14.7x |
-| AES-256-CBC encrypt | 101 MB/s | 694 MB/s | ~6.9x |
+| AES-256-IGE encrypt | 101 MB/s | 670 MB/s | ~6.6x |
+| AES-256-CTR encrypt | 84 MB/s | 1572 MB/s | ~18.7x |
+| AES-256-CBC encrypt | 101 MB/s | 674 MB/s | ~6.7x |
 
 The speedup varies by mode because the two implementations have different
 per-block costs. Encryption and decryption are equally affected.
@@ -450,7 +450,7 @@ Linux (x86_64, ARM64), macOS (Intel and Apple Silicon) and Windows (AMD64 and
 The original ships a portable software AES implementation. This fork detects
 AES-NI at runtime and uses hardware AES instructions when available, falling
 back to the same portable code path otherwise. On AES-NI hardware that is
-roughly 6.6x faster for IGE, 14.7x for CTR and 6.9x for CBC in local
+roughly 6.6x faster for IGE, 18.7x for CTR and 6.7x for CBC in local
 measurements. See [Performance](#performance) for the full tables and the
 reference machine.
 
@@ -465,13 +465,14 @@ out = context.update(chunk)
 ```
 
 `IGEContext` and `CBCContext` work the same way. On 16-byte messages a context is
-about 3x faster than calling the one-shot function each time.
+about 5x faster than calling the one-shot function each time.
 
 ### Is it thread-safe? Can I use it from multiple threads?
 
-Yes. Every mode call releases the GIL, so Python threads run AES concurrently
-and throughput scales with cores. A single context object is stateful, so give
-each thread its own context rather than sharing one.
+Yes. Large mode calls (8 KiB or more) release the GIL, so Python threads run AES
+concurrently and throughput scales with cores. Small calls hold the GIL for
+lower latency. A single context object is stateful, so give each thread its
+own context rather than sharing one.
 
 ### Is it secure? Has it been audited?
 
@@ -507,6 +508,18 @@ Open an issue at
 4. Run tests: `pytest`.
 
 ## Changelog
+
+### 1.3.2
+
+* **Faster small-message calls.** All functions and `update` methods now use
+  `METH_FASTCALL` instead of `METH_VARARGS`, avoiding tuple allocation on every
+  call. The GIL is only released for payloads of 8 KiB or more, so small
+  messages run with lower latency. `CTRContext.update` on 16-byte messages is
+  now ~171 ns (was ~329 ns), about 5.2x faster than the one-shot function.
+* **Faster bulk CTR.** The four CTR blocks are now encrypted round-by-round so
+  AESENC latency overlaps across blocks, about 20% faster at 1 MiB
+  (1572 MB/s one-shot, 1665 MB/s context on the reference machine).
+* No API or output changes; ciphertext remains bit-for-bit identical.
 
 ### 1.3.1
 

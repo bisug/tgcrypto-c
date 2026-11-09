@@ -1,8 +1,8 @@
 """Thread-scaling benchmark for the tgcrypto extension.
 
-The extension releases the GIL around every mode call, so Python threads can
-run AES concurrently. This measures how well each mode scales with threads and
-prints aggregate throughput plus the speedup over one thread.
+The extension releases the GIL for large buffers (8 KiB or more), so Python
+threads can run AES concurrently. This measures how well each mode scales with
+threads and prints aggregate throughput plus the speedup over one thread.
 
 Each thread works on its own buffer, so every mode scales: even IGE, whose
 chaining is serial *within* a call, has independent chains across calls.
