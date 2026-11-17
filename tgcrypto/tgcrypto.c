@@ -739,10 +739,22 @@ static struct PyModuleDef module = {
 };
 
 PyMODINIT_FUNC PyInit_tgcrypto(void) {
+#if TGCRYPTO_AESNI
+    /* Prime the CPU-detect cache at import, before any caller threads run. */
+    (void) tgcrypto_aesni_available();
+#endif
     PyObject *m = PyModule_Create(&module);
 
     if (m == NULL)
         return NULL;
+
+#if PY_VERSION_HEX >= 0x030D0000 && defined(Py_GIL_DISABLED)
+    /* Contexts are not shared between threads, so keep the GIL off here. */
+    if (PyUnstable_Module_SetGIL(m, Py_MOD_GIL_NOT_USED) < 0) {
+        Py_DECREF(m);
+        return NULL;
+    }
+#endif
 
     if (PyModule_AddStringConstant(m, "__version__", TGCRYPTO_VERSION) < 0) {
         Py_DECREF(m);

@@ -61,6 +61,7 @@ void cbc256_ctx(const uint8_t in[], uint8_t out[], uint32_t length,
         }
 
         _mm_storeu_si128((__m128i *) iv, ivm);
+        tgcrypto_wipe(roundKeys, sizeof(roundKeys));
 
         return;
     }

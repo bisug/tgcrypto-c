@@ -74,6 +74,7 @@ void ige256_ctx(const uint8_t in[], uint8_t out[], uint32_t length,
 
         tgcrypto_wipe(iv1, sizeof(iv1));
         tgcrypto_wipe(iv2, sizeof(iv2));
+        tgcrypto_wipe(roundKeys, sizeof(roundKeys));
 
         return;
     }

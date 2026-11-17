@@ -287,5 +287,45 @@ class TestModuleMetadata(unittest.TestCase):
         self.assertEqual(tgcrypto.ctr256_decrypt.__name__, "ctr256_decrypt")
 
 
+class TestLargeBufferGilPath(unittest.TestCase):
+    # The extension releases the GIL at 8 KiB; keep that branch under test.
+    LARGE = 8 * 1024 + 16
+
+    def test_one_shot_large_buffers(self):
+        key = os.urandom(32)
+        data = os.urandom(self.LARGE)
+
+        iv32 = os.urandom(32)
+        self.assertEqual(
+            tgcrypto.ige256_decrypt(tgcrypto.ige256_encrypt(data, key, iv32), key, iv32),
+            data,
+        )
+
+        iv16 = os.urandom(16)
+        ct = tgcrypto.cbc256_encrypt(data, key, bytearray(iv16))
+        self.assertEqual(tgcrypto.cbc256_decrypt(ct, key, bytearray(iv16)), data)
+
+        for state in (0, 7):
+            enc_iv, enc_state = bytearray(iv16), bytearray([state])
+            ct = tgcrypto.ctr256_encrypt(data, key, enc_iv, enc_state)
+            dec_iv, dec_state = bytearray(iv16), bytearray([state])
+            self.assertEqual(tgcrypto.ctr256_decrypt(ct, key, dec_iv, dec_state), data)
+
+    def test_contexts_large_buffers_from_nonzero_state(self):
+        key = os.urandom(32)
+        data = os.urandom(self.LARGE)
+
+        iv32 = os.urandom(32)
+        encrypted = tgcrypto.IGEContext(key, iv32).update(data)
+        self.assertEqual(tgcrypto.IGEContext(key, iv32, True).update(encrypted), data)
+
+        iv16 = os.urandom(16)
+        encrypted = tgcrypto.CBCContext(key, iv16).update(data)
+        self.assertEqual(tgcrypto.CBCContext(key, iv16, True).update(encrypted), data)
+
+        encrypted = tgcrypto.CTRContext(key, iv16, 7).update(data)
+        self.assertEqual(tgcrypto.CTRContext(key, iv16, 7).update(encrypted), data)
+
+
 if __name__ == "__main__":
     unittest.main()

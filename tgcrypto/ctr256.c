@@ -42,6 +42,29 @@ void ctr256_ctx(const uint8_t in[], uint8_t out[], uint32_t length,
          * copied into this naturally aligned local array before use. */
         tgcrypto_aesni_load_keys(context->roundKeyBytes, roundKeys);
 
+        /* Finish a partial block from a previous call first. The full-block
+         * loops below then always start on a block boundary. */
+        if (*state != 0) {
+            keystream = tgcrypto_aesni_encrypt_block(
+                _mm_loadu_si128((const __m128i *) iv), roundKeys);
+            _mm_storeu_si128((__m128i *) chunk, keystream);
+
+            while (*state < AES_BLOCK_SIZE && processed < length) {
+                out[processed] = in[processed] ^ chunk[(*state)++];
+                ++processed;
+            }
+
+            if (*state == AES_BLOCK_SIZE) {
+                *state = 0;
+                k = AES_BLOCK_SIZE;
+                while (k--)
+                    if (++iv[k])
+                        break;
+            }
+
+            tgcrypto_wipe(chunk, sizeof(chunk));
+        }
+
         if (*state == 0) {
             while (length - processed >= 4 * AES_BLOCK_SIZE) {
                 c0 = _mm_loadu_si128((const __m128i *) iv);
@@ -124,6 +147,7 @@ void ctr256_ctx(const uint8_t in[], uint8_t out[], uint32_t length,
             tgcrypto_wipe(chunk, sizeof(chunk));
         }
 
+        tgcrypto_wipe(roundKeys, sizeof(roundKeys));
         return;
     }
 #endif
