@@ -37,7 +37,7 @@ void ige256_ctx(const uint8_t in[], uint8_t out[], uint32_t length,
 
         /* Round keys are kept as bytes in the context (see aes_context.h) and
          * copied into this naturally aligned local array before use. */
-        tgcrypto_aesni_load_keys(context->roundKeyBytes, roundKeys);
+        tgcrypto_aesni_load_keys((const uint8_t *) context->expandedKey, roundKeys);
 
         iv1m = _mm_loadu_si128((const __m128i *) iv1);
         iv2m = _mm_loadu_si128((const __m128i *) iv2);

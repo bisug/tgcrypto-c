@@ -384,9 +384,11 @@ Open an issue at
 
 ### Unreleased
 
-* Clear the local AES-NI round-key copy before each mode function returns.
+* Store AES-NI round keys directly in the context buffer, removing a serialization round-trip.
+* Clear key material with 16-byte stores on SSE2 x86, and free the duplicate round-key buffer.
 * Keep CTR streaming on the fast path when a call starts at counter state 1-15.
 * Declare GIL-free support on free-threaded Python and test the 8 KiB GIL path.
+* Clear the local AES-NI round-key copy before each mode function returns.
 
 ### 1.3.2
 

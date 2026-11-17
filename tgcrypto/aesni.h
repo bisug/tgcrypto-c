@@ -53,15 +53,6 @@
 #define TGCRYPTO_AESNI_TARGET __attribute__((target("aes,ssse3"), unused))
 #endif
 
-/*
- * Round keys are loaded straight from the standard 60-word expanded key
- * buffers produced by aes256_set_encryption_key() /
- * aes256_set_decryption_key(). The decryption buffer already holds the
- * equivalent inverse cipher form (reversed order, middle rounds transformed
- * with the inverse MixColumns), which is exactly what the aesdec round
- * instructions expect, so no additional key preparation is needed.
- */
-
 static TGCRYPTO_AESNI_TARGET int tgcrypto_aesni_available(void) {
     static int cached = -1;
 
@@ -77,25 +68,6 @@ static TGCRYPTO_AESNI_TARGET int tgcrypto_aesni_available(void) {
     }
 
     return cached;
-}
-
-static TGCRYPTO_AESNI_TARGET void tgcrypto_aesni_load_round_keys(const uint32_t expandedKey[60], __m128i roundKeys[15]) {
-    /*
-     * The expanded key words are packed big-endian, so their in-memory byte
-     * order is reversed on little-endian machines. The AES-NI round
-     * instructions consume the round key as raw AES state bytes, therefore
-     * every 4-byte group must be byte-swapped while loading. (All CPUs with
-     * AES-NI also have SSSE3, which provides the byte-shuffle instruction.)
-     */
-    const __m128i bswap_mask = _mm_set_epi8(
-        12, 13, 14, 15, 8, 9, 10, 11, 4, 5, 6, 7, 0, 1, 2, 3
-    );
-    int i;
-
-    for (i = 0; i < 15; ++i)
-        roundKeys[i] = _mm_shuffle_epi8(
-            _mm_loadu_si128((const __m128i *) &expandedKey[4 * i]), bswap_mask
-        );
 }
 
 static TGCRYPTO_AESNI_TARGET __m128i tgcrypto_aesni_encrypt_block(__m128i block, const __m128i roundKeys[15]) {
@@ -154,14 +126,6 @@ static TGCRYPTO_AESNI_TARGET void tgcrypto_aesni_load_keys(const uint8_t roundKe
         roundKeys[i] = _mm_loadu_si128((const __m128i *) &roundKeyBytes[16 * i]);
 }
 
-/* Serialize an aligned round-key array back into the context's byte storage. */
-static TGCRYPTO_AESNI_TARGET void tgcrypto_aesni_store_keys(const __m128i roundKeys[15],
-                                                                    uint8_t roundKeyBytes[240]) {
-    int i;
-
-    for (i = 0; i < 15; ++i)
-        _mm_storeu_si128((__m128i *) &roundKeyBytes[16 * i], roundKeys[i]);
-}
 
 static TGCRYPTO_AESNI_TARGET __m128i tgcrypto_aesni_decrypt_block(__m128i block, const __m128i roundKeys[15]) {
     int i;
@@ -177,26 +141,14 @@ static TGCRYPTO_AESNI_TARGET __m128i tgcrypto_aesni_decrypt_block(__m128i block,
 /*
  * AES-NI key expansion.
  *
- * Produces exactly the same 60 expanded-key words as the software
- * aes256_set_encryption_key() / aes256_set_decryption_key(), but without any
- * table lookups. For decryption the round keys are transformed with aesimc
- * (inverse MixColumns) and emitted in reverse order - the equivalent inverse
- * cipher layout the scalar code builds (dec[0] = K14, dec[i] = InvMix(K(14-i)),
- * dec[14] = K0), which is exactly what aesdec expects.
- *
- * aesenc/aesdec consume a round key as raw AES state bytes, so the words are
- * byte-swapped per 4-byte group on the way out - the exact inverse of
- * tgcrypto_aesni_load_round_keys().
- *
- * On a low-power Celeron N4120 the scalar schedule costs ~445 ns (encrypt) and
- * ~630 ns (decrypt) per call, i.e. roughly a third of a one-block IGE call,
- * while this version replaces it with a handful of AES instructions.
+ * Stores the 15 round keys directly in the byte order aesenc/aesdec consume,
+ * so each mode call only needs unaligned loads. For decryption the keys are
+ * transformed with aesimc (inverse MixColumns) and reversed:
+ * dec[0] = K14, dec[i] = InvMix(K(14-i)), dec[14] = K0.
  */
-static TGCRYPTO_AESNI_TARGET void tgcrypto_aesni_expand_key(const uint8_t key[32], uint32_t expandedKey[60],
+static TGCRYPTO_AESNI_TARGET void tgcrypto_aesni_expand_key(const uint8_t key[32],
+                                                            uint8_t roundKeyBytes[240],
                                                             uint8_t decrypt) {
-    const __m128i bswap_mask = _mm_set_epi8(
-        12, 13, 14, 15, 8, 9, 10, 11, 4, 5, 6, 7, 0, 1, 2, 3
-    );
     __m128i rk[15];
     __m128i lo, hi, t;
     int i;
@@ -251,7 +203,7 @@ static TGCRYPTO_AESNI_TARGET void tgcrypto_aesni_expand_key(const uint8_t key[32
     }
 
     for (i = 0; i < 15; ++i)
-        _mm_storeu_si128((__m128i *) &expandedKey[4 * i], _mm_shuffle_epi8(rk[i], bswap_mask));
+        _mm_storeu_si128((__m128i *) &roundKeyBytes[16 * i], rk[i]);
 
     tgcrypto_wipe(rk, sizeof(rk));
 }
