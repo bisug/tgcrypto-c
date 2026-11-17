@@ -384,6 +384,7 @@ Open an issue at
 
 ### Unreleased
 
+* Encrypt eight CTR blocks per iteration on AES-NI, up from four, to keep the AES pipeline fuller on bulk data.
 * Keep the CTR state byte in a C local during GIL-free calls, so a concurrent write to the caller's buffer cannot affect validation.
 * Store AES-NI round keys directly in the context buffer, removing a serialization round-trip.
 * Clear key material with 16-byte stores on SSE2 x86, and free the duplicate round-key buffer.

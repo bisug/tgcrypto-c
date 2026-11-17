@@ -34,6 +34,7 @@ void ctr256_ctx(const uint8_t in[], uint8_t out[], uint32_t length,
 #if TGCRYPTO_AESNI
     if (context->use_aesni) {
         __m128i ks0, ks1, ks2, ks3, c0, c1, c2, c3, x;
+        __m128i ks4, ks5, ks6, ks7, c4, c5, c6, c7;
         __m128i roundKeys[15];
         __m128i keystream;
         uint32_t processed = 0;
@@ -66,6 +67,47 @@ void ctr256_ctx(const uint8_t in[], uint8_t out[], uint32_t length,
         }
 
         if (*state == 0) {
+            while (length - processed >= 8 * AES_BLOCK_SIZE) {
+                c0 = _mm_loadu_si128((const __m128i *) iv);
+                k = AES_BLOCK_SIZE; while (k--) if (++iv[k]) break;
+                c1 = _mm_loadu_si128((const __m128i *) iv);
+                k = AES_BLOCK_SIZE; while (k--) if (++iv[k]) break;
+                c2 = _mm_loadu_si128((const __m128i *) iv);
+                k = AES_BLOCK_SIZE; while (k--) if (++iv[k]) break;
+                c3 = _mm_loadu_si128((const __m128i *) iv);
+                k = AES_BLOCK_SIZE; while (k--) if (++iv[k]) break;
+                c4 = _mm_loadu_si128((const __m128i *) iv);
+                k = AES_BLOCK_SIZE; while (k--) if (++iv[k]) break;
+                c5 = _mm_loadu_si128((const __m128i *) iv);
+                k = AES_BLOCK_SIZE; while (k--) if (++iv[k]) break;
+                c6 = _mm_loadu_si128((const __m128i *) iv);
+                k = AES_BLOCK_SIZE; while (k--) if (++iv[k]) break;
+                c7 = _mm_loadu_si128((const __m128i *) iv);
+                k = AES_BLOCK_SIZE; while (k--) if (++iv[k]) break;
+
+                tgcrypto_aesni_encrypt_8blocks(c0, c1, c2, c3, c4, c5, c6, c7, roundKeys,
+                                               &ks0, &ks1, &ks2, &ks3, &ks4, &ks5, &ks6, &ks7);
+
+                x = _mm_loadu_si128((const __m128i *) &in[processed]);
+                _mm_storeu_si128((__m128i *) &out[processed], _mm_xor_si128(x, ks0));
+                x = _mm_loadu_si128((const __m128i *) &in[processed + AES_BLOCK_SIZE]);
+                _mm_storeu_si128((__m128i *) &out[processed + AES_BLOCK_SIZE], _mm_xor_si128(x, ks1));
+                x = _mm_loadu_si128((const __m128i *) &in[processed + 2 * AES_BLOCK_SIZE]);
+                _mm_storeu_si128((__m128i *) &out[processed + 2 * AES_BLOCK_SIZE], _mm_xor_si128(x, ks2));
+                x = _mm_loadu_si128((const __m128i *) &in[processed + 3 * AES_BLOCK_SIZE]);
+                _mm_storeu_si128((__m128i *) &out[processed + 3 * AES_BLOCK_SIZE], _mm_xor_si128(x, ks3));
+                x = _mm_loadu_si128((const __m128i *) &in[processed + 4 * AES_BLOCK_SIZE]);
+                _mm_storeu_si128((__m128i *) &out[processed + 4 * AES_BLOCK_SIZE], _mm_xor_si128(x, ks4));
+                x = _mm_loadu_si128((const __m128i *) &in[processed + 5 * AES_BLOCK_SIZE]);
+                _mm_storeu_si128((__m128i *) &out[processed + 5 * AES_BLOCK_SIZE], _mm_xor_si128(x, ks5));
+                x = _mm_loadu_si128((const __m128i *) &in[processed + 6 * AES_BLOCK_SIZE]);
+                _mm_storeu_si128((__m128i *) &out[processed + 6 * AES_BLOCK_SIZE], _mm_xor_si128(x, ks6));
+                x = _mm_loadu_si128((const __m128i *) &in[processed + 7 * AES_BLOCK_SIZE]);
+                _mm_storeu_si128((__m128i *) &out[processed + 7 * AES_BLOCK_SIZE], _mm_xor_si128(x, ks7));
+
+                processed += 8 * AES_BLOCK_SIZE;
+            }
+
             while (length - processed >= 4 * AES_BLOCK_SIZE) {
                 c0 = _mm_loadu_si128((const __m128i *) iv);
                 k = AES_BLOCK_SIZE;

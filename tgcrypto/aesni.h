@@ -107,6 +107,46 @@ static TGCRYPTO_AESNI_TARGET void tgcrypto_aesni_encrypt_4blocks(
     *ks3 = _mm_aesenclast_si128(b3, roundKeys[14]);
 }
 
+/* Eight independent blocks at once, to fill the AES pipeline on CPUs that
+ * can issue more than four AESENC instructions per cycle. */
+static TGCRYPTO_AESNI_TARGET void tgcrypto_aesni_encrypt_8blocks(
+    __m128i c0, __m128i c1, __m128i c2, __m128i c3,
+    __m128i c4, __m128i c5, __m128i c6, __m128i c7,
+    const __m128i roundKeys[15],
+    __m128i *ks0, __m128i *ks1, __m128i *ks2, __m128i *ks3,
+    __m128i *ks4, __m128i *ks5, __m128i *ks6, __m128i *ks7) {
+    int r;
+    __m128i b0 = _mm_xor_si128(c0, roundKeys[0]);
+    __m128i b1 = _mm_xor_si128(c1, roundKeys[0]);
+    __m128i b2 = _mm_xor_si128(c2, roundKeys[0]);
+    __m128i b3 = _mm_xor_si128(c3, roundKeys[0]);
+    __m128i b4 = _mm_xor_si128(c4, roundKeys[0]);
+    __m128i b5 = _mm_xor_si128(c5, roundKeys[0]);
+    __m128i b6 = _mm_xor_si128(c6, roundKeys[0]);
+    __m128i b7 = _mm_xor_si128(c7, roundKeys[0]);
+
+    for (r = 1; r < 14; ++r) {
+        __m128i rk = roundKeys[r];
+        b0 = _mm_aesenc_si128(b0, rk);
+        b1 = _mm_aesenc_si128(b1, rk);
+        b2 = _mm_aesenc_si128(b2, rk);
+        b3 = _mm_aesenc_si128(b3, rk);
+        b4 = _mm_aesenc_si128(b4, rk);
+        b5 = _mm_aesenc_si128(b5, rk);
+        b6 = _mm_aesenc_si128(b6, rk);
+        b7 = _mm_aesenc_si128(b7, rk);
+    }
+
+    *ks0 = _mm_aesenclast_si128(b0, roundKeys[14]);
+    *ks1 = _mm_aesenclast_si128(b1, roundKeys[14]);
+    *ks2 = _mm_aesenclast_si128(b2, roundKeys[14]);
+    *ks3 = _mm_aesenclast_si128(b3, roundKeys[14]);
+    *ks4 = _mm_aesenclast_si128(b4, roundKeys[14]);
+    *ks5 = _mm_aesenclast_si128(b5, roundKeys[14]);
+    *ks6 = _mm_aesenclast_si128(b6, roundKeys[14]);
+    *ks7 = _mm_aesenclast_si128(b7, roundKeys[14]);
+}
+
 /*
  * Copy serialized round keys into a local, naturally aligned array.
  *
