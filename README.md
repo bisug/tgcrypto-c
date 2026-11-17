@@ -392,7 +392,7 @@ Open an issue at
 * Keep CTR streaming on the fast path when a call starts at counter state 1-15.
 * Declare GIL-free support on free-threaded Python and test the 8 KiB GIL path.
 * Clear the local AES-NI round-key copy before each mode function returns.
-* Run the independent IGE known-answer and CTR reference tests in every CI job and wheel build.
+* Run the independent IGE known-answer test in every CI job and wheel build, and the CTR reference test in the main test matrix.
 * Consolidate wheel builds into one workflow and publish only on release or manual dispatch.
 * Correct the compatibility note: CTR and CBC IVs must now be writable buffers.
 * Share argument validation across the three context `update()` methods.

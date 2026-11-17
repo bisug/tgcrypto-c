@@ -84,7 +84,7 @@ jobs:
       - name: Build wheels
         run: python -m cibuildwheel --output-dir wheelhouse
         env:
-          CIBW_TEST_REQUIRES: pytest pycryptodome cryptography
+          CIBW_TEST_REQUIRES: pytest pycryptodome
           CIBW_TEST_COMMAND: python -m pytest {project}/tests
           CIBW_BUILD_VERBOSITY: 1
 
