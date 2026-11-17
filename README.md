@@ -383,7 +383,7 @@ Open an issue at
 
 ## Changelog
 
-### Unreleased
+### 1.3.3
 
 * Encrypt eight CTR blocks per iteration on AES-NI, up from four, to keep the AES pipeline fuller on bulk data.
 * Keep the CTR state byte in a C local during GIL-free calls, so a concurrent write to the caller's buffer cannot affect validation.
@@ -392,6 +392,11 @@ Open an issue at
 * Keep CTR streaming on the fast path when a call starts at counter state 1-15.
 * Declare GIL-free support on free-threaded Python and test the 8 KiB GIL path.
 * Clear the local AES-NI round-key copy before each mode function returns.
+* Run the independent IGE known-answer and CTR reference tests in every CI job and wheel build.
+* Consolidate wheel builds into one workflow and publish only on release or manual dispatch.
+* Correct the compatibility note: CTR and CBC IVs must now be writable buffers.
+* Share argument validation across the three context `update()` methods.
+* Set the module name to `tgcrypto` so introspection matches the import.
 
 ### 1.3.2
 
