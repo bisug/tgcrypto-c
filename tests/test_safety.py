@@ -308,6 +308,17 @@ class TestLargeBufferGilPath(unittest.TestCase):
         for state in (0, 7):
             enc_iv, enc_state = bytearray(iv16), bytearray([state])
             ct = tgcrypto.ctr256_encrypt(data, key, enc_iv, enc_state)
+
+            # The GIL-free call must write the final counter and state back.
+            ref_iv, ref_state = bytearray(iv16), bytearray([state])
+            ref = b"".join(
+                tgcrypto.ctr256_encrypt(data[i:i + 100], key, ref_iv, ref_state)
+                for i in range(0, len(data), 100)
+            )
+            self.assertEqual(ct, ref)
+            self.assertEqual(enc_iv, ref_iv)
+            self.assertEqual(enc_state, ref_state)
+
             dec_iv, dec_state = bytearray(iv16), bytearray([state])
             self.assertEqual(tgcrypto.ctr256_decrypt(ct, key, dec_iv, dec_state), data)
 

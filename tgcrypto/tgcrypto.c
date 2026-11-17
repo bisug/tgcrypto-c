@@ -163,6 +163,7 @@ static PyObject *ctr(PyObject *const *args, Py_ssize_t nargs) {
     Py_buffer data, key, iv, state;
     PyObject *out;
     Py_ssize_t n;
+    uint8_t state_value;
 
     if (nargs != 4)
         return arg_count_error(4, nargs);
@@ -209,7 +210,9 @@ static PyObject *ctr(PyObject *const *args, Py_ssize_t nargs) {
         return NULL;
     }
 
-    if (*(uint8_t *) state.buf > 15) {
+    state_value = *(uint8_t *) state.buf;
+
+    if (state_value > 15) {
         release4(&data, &key, &iv, &state);
         PyErr_SetString(PyExc_ValueError, "State value must be in the range [0, 15]");
         return NULL;
@@ -240,13 +243,17 @@ static PyObject *ctr(PyObject *const *args, Py_ssize_t nargs) {
         return NULL;
     }
 
+    /* Keep the state byte in a C local: the GIL-free call must not read a
+     * Python buffer that another thread can change after validation. */
     if (n >= TGCRYPTO_GIL_THRESHOLD) {
         Py_BEGIN_ALLOW_THREADS
-            ctr256(data.buf, (uint8_t *) PyBytes_AS_STRING(out), (uint32_t) n, key.buf, iv.buf, state.buf);
+            ctr256(data.buf, (uint8_t *) PyBytes_AS_STRING(out), (uint32_t) n, key.buf, iv.buf, &state_value);
         Py_END_ALLOW_THREADS
     } else {
-        ctr256(data.buf, (uint8_t *) PyBytes_AS_STRING(out), (uint32_t) n, key.buf, iv.buf, state.buf);
+        ctr256(data.buf, (uint8_t *) PyBytes_AS_STRING(out), (uint32_t) n, key.buf, iv.buf, &state_value);
     }
+
+    *(uint8_t *) state.buf = state_value;
 
     release4(&data, &key, &iv, &state);
 
