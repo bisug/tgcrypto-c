@@ -77,6 +77,38 @@ static PyObject *update_arg_count_error(Py_ssize_t given) {
     return NULL;
 }
 
+/* Shared argument handling for the three context update() methods. On success
+ * it fills data/out/n; on failure it releases data and sets a Python error. */
+static int context_update_args(PyObject *arg, unsigned block_align,
+                               Py_buffer *data, PyObject **out, uint32_t *n) {
+    if (get_buffer(arg, data) < 0)
+        return -1;
+
+    if (data->len == 0 || (block_align > 1 && data->len % block_align != 0)) {
+        PyBuffer_Release(data);
+        PyErr_SetString(PyExc_ValueError, block_align > 1
+            ? "Data size must be a non-empty multiple of 16 bytes"
+            : "Data must not be empty");
+        return -1;
+    }
+
+    if ((uint64_t) data->len > (uint64_t) UINT32_MAX) {
+        PyBuffer_Release(data);
+        PyErr_SetString(PyExc_ValueError, "Data is too large (max 4294967295 bytes)");
+        return -1;
+    }
+
+    *n = (uint32_t) data->len;
+    *out = PyBytes_FromStringAndSize(NULL, *n);
+
+    if (*out == NULL) {
+        PyBuffer_Release(data);
+        return -1;
+    }
+
+    return 0;
+}
+
 static PyObject *ige(PyObject *const *args, Py_ssize_t nargs, uint8_t encrypt) {
     Py_buffer data, key, iv;
     PyObject *out;
@@ -413,40 +445,22 @@ static void ctr_context_dealloc(CTRContextObject *self) {
 static PyObject *ctr_context_update(CTRContextObject *self, PyObject *const *args, Py_ssize_t nargs) {
     Py_buffer data;
     PyObject *out;
+    uint32_t n;
 
     if (nargs != 1)
         return update_arg_count_error(nargs);
 
-    if (get_buffer(args[0], &data) < 0)
+    if (context_update_args(args[0], 1, &data, &out, &n) < 0)
         return NULL;
 
-    if (data.len == 0) {
-        PyBuffer_Release(&data);
-        PyErr_SetString(PyExc_ValueError, "Data must not be empty");
-        return NULL;
-    }
-
-    if ((uint64_t) data.len > (uint64_t) UINT32_MAX) {
-        PyBuffer_Release(&data);
-        PyErr_SetString(PyExc_ValueError, "Data is too large (max 4294967295 bytes)");
-        return NULL;
-    }
-
-    out = PyBytes_FromStringAndSize(NULL, data.len);
-
-    if (out == NULL) {
-        PyBuffer_Release(&data);
-        return NULL;
-    }
-
-    if (data.len >= TGCRYPTO_GIL_THRESHOLD) {
+    if (n >= TGCRYPTO_GIL_THRESHOLD) {
         Py_BEGIN_ALLOW_THREADS
-            ctr256_ctx(data.buf, (uint8_t *) PyBytes_AS_STRING(out),
-                       (uint32_t) data.len, &self->aes, self->iv, &self->state);
+            ctr256_ctx(data.buf, (uint8_t *) PyBytes_AS_STRING(out), n,
+                       &self->aes, self->iv, &self->state);
         Py_END_ALLOW_THREADS
     } else {
-        ctr256_ctx(data.buf, (uint8_t *) PyBytes_AS_STRING(out),
-                   (uint32_t) data.len, &self->aes, self->iv, &self->state);
+        ctr256_ctx(data.buf, (uint8_t *) PyBytes_AS_STRING(out), n,
+                   &self->aes, self->iv, &self->state);
     }
 
     PyBuffer_Release(&data);
@@ -513,43 +527,22 @@ static void ige_context_dealloc(IGEContextObject *self) {
 static PyObject *ige_context_update(IGEContextObject *self, PyObject *const *args, Py_ssize_t nargs) {
     Py_buffer data;
     PyObject *out;
+    uint32_t n;
 
     if (nargs != 1)
         return update_arg_count_error(nargs);
 
-    if (get_buffer(args[0], &data) < 0)
+    if (context_update_args(args[0], AES_BLOCK_SIZE, &data, &out, &n) < 0)
         return NULL;
 
-    if (data.len == 0 || data.len % 16 != 0) {
-        PyBuffer_Release(&data);
-        PyErr_SetString(PyExc_ValueError,
-                        "Data size must be a non-empty multiple of 16 bytes");
-        return NULL;
-    }
-
-    if ((uint64_t) data.len > (uint64_t) UINT32_MAX) {
-        PyBuffer_Release(&data);
-        PyErr_SetString(PyExc_ValueError, "Data is too large (max 4294967295 bytes)");
-        return NULL;
-    }
-
-    out = PyBytes_FromStringAndSize(NULL, data.len);
-
-    if (out == NULL) {
-        PyBuffer_Release(&data);
-        return NULL;
-    }
-
-    if (data.len >= TGCRYPTO_GIL_THRESHOLD) {
+    if (n >= TGCRYPTO_GIL_THRESHOLD) {
         Py_BEGIN_ALLOW_THREADS
-            ige256_ctx(data.buf, (uint8_t *) PyBytes_AS_STRING(out),
-                       (uint32_t) data.len, &self->aes, self->iv,
-                       (uint8_t) !self->decrypt);
+            ige256_ctx(data.buf, (uint8_t *) PyBytes_AS_STRING(out), n,
+                       &self->aes, self->iv, (uint8_t) !self->decrypt);
         Py_END_ALLOW_THREADS
     } else {
-        ige256_ctx(data.buf, (uint8_t *) PyBytes_AS_STRING(out),
-                   (uint32_t) data.len, &self->aes, self->iv,
-                   (uint8_t) !self->decrypt);
+        ige256_ctx(data.buf, (uint8_t *) PyBytes_AS_STRING(out), n,
+                   &self->aes, self->iv, (uint8_t) !self->decrypt);
     }
 
     PyBuffer_Release(&data);
@@ -616,43 +609,22 @@ static void cbc_context_dealloc(CBCContextObject *self) {
 static PyObject *cbc_context_update(CBCContextObject *self, PyObject *const *args, Py_ssize_t nargs) {
     Py_buffer data;
     PyObject *out;
+    uint32_t n;
 
     if (nargs != 1)
         return update_arg_count_error(nargs);
 
-    if (get_buffer(args[0], &data) < 0)
+    if (context_update_args(args[0], AES_BLOCK_SIZE, &data, &out, &n) < 0)
         return NULL;
 
-    if (data.len == 0 || data.len % 16 != 0) {
-        PyBuffer_Release(&data);
-        PyErr_SetString(PyExc_ValueError,
-                        "Data size must be a non-empty multiple of 16 bytes");
-        return NULL;
-    }
-
-    if ((uint64_t) data.len > (uint64_t) UINT32_MAX) {
-        PyBuffer_Release(&data);
-        PyErr_SetString(PyExc_ValueError, "Data is too large (max 4294967295 bytes)");
-        return NULL;
-    }
-
-    out = PyBytes_FromStringAndSize(NULL, data.len);
-
-    if (out == NULL) {
-        PyBuffer_Release(&data);
-        return NULL;
-    }
-
-    if (data.len >= TGCRYPTO_GIL_THRESHOLD) {
+    if (n >= TGCRYPTO_GIL_THRESHOLD) {
         Py_BEGIN_ALLOW_THREADS
-            cbc256_ctx(data.buf, (uint8_t *) PyBytes_AS_STRING(out),
-                       (uint32_t) data.len, &self->aes, self->iv,
-                       (uint8_t) !self->decrypt);
+            cbc256_ctx(data.buf, (uint8_t *) PyBytes_AS_STRING(out), n,
+                       &self->aes, self->iv, (uint8_t) !self->decrypt);
         Py_END_ALLOW_THREADS
     } else {
-        cbc256_ctx(data.buf, (uint8_t *) PyBytes_AS_STRING(out),
-                   (uint32_t) data.len, &self->aes, self->iv,
-                   (uint8_t) !self->decrypt);
+        cbc256_ctx(data.buf, (uint8_t *) PyBytes_AS_STRING(out), n,
+                   &self->aes, self->iv, (uint8_t) !self->decrypt);
     }
 
     PyBuffer_Release(&data);
@@ -739,7 +711,7 @@ static PyMethodDef methods[] = {
 
 static struct PyModuleDef module = {
     PyModuleDef_HEAD_INIT,
-    "TgCrypto",
+    "tgcrypto",
     DESCRIPTION,
     -1,
     methods

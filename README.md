@@ -19,8 +19,9 @@ It implements the cryptographic algorithms Telegram requires:
 - **`AES-256-CBC`** - used for [encrypted passport credentials](https://core.telegram.org/passport).
 
 Migrating from `tgcrypto` requires no code change: the six original functions
-keep their exact names, argument order, return types and validation behaviour,
-and the cryptographic output is bit-for-bit identical.
+keep their exact names, argument order, return types and output, which is
+bit-for-bit identical. One difference: CTR and CBC IVs (and the CTR state) must
+now be writable buffers; immutable `bytes` raise `BufferError`.
 
 ## Requirements
 
