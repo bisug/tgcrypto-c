@@ -384,6 +384,7 @@ Open an issue at
 
 ### Unreleased
 
+* Use VAES (256-bit AES) for bulk CTR on CPUs that support it, with an import-time self-test that falls back to the 128-bit path on any mismatch.
 * Encrypt eight CTR blocks per iteration on AES-NI, up from four, to keep the AES pipeline fuller on bulk data.
 * Keep the CTR state byte in a C local during GIL-free calls, so a concurrent write to the caller's buffer cannot affect validation.
 * Store AES-NI round keys directly in the context buffer, removing a serialization round-trip.
