@@ -67,14 +67,6 @@ void ctr256_ctx(const uint8_t in[], uint8_t out[], uint32_t length,
         }
 
         if (*state == 0) {
-#if TGCRYPTO_VAES
-            if (tgcrypto_vaes_selftest()) {
-                while (length - processed >= 16 * AES_BLOCK_SIZE) {
-                    tgcrypto_vaes_ctr16(&in[processed], &out[processed], roundKeys, iv);
-                    processed += 16 * AES_BLOCK_SIZE;
-                }
-            }
-#endif
             while (length - processed >= 8 * AES_BLOCK_SIZE) {
                 c0 = _mm_loadu_si128((const __m128i *) iv);
                 k = AES_BLOCK_SIZE; while (k--) if (++iv[k]) break;

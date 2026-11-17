@@ -53,69 +53,6 @@
 #define TGCRYPTO_AESNI_TARGET __attribute__((target("aes,ssse3"), unused))
 #endif
 
-/* VAES processes two independent 128-bit AES lanes per 256-bit instruction.
- * Needs GCC 10+ / Clang 14+ for __builtin_cpu_supports("vaes"); older
- * compilers and MSVC keep the verified 128-bit AES-NI path. */
-#if (defined(__clang__) && __clang_major__ >= 14) || \
-    (!defined(__clang__) && defined(__GNUC__) && __GNUC__ >= 10)
-#include <immintrin.h>
-#define TGCRYPTO_VAES 1
-#define TGCRYPTO_VAES_TARGET __attribute__((target("vaes,avx2"), unused))
-
-static TGCRYPTO_VAES_TARGET int tgcrypto_vaes_available(void) {
-    static int cached = -1;
-    if (cached < 0) {
-        __builtin_cpu_init();
-        cached = (__builtin_cpu_supports("vaes") &&
-                  __builtin_cpu_supports("avx2")) ? 1 : 0;
-    }
-    return cached;
-}
-
-/* Encrypt 16 CTR blocks (8 vectors x 2 lanes), then advance iv by 16.
- * The counter is a big-endian 128-bit value; lanes hold consecutive counters. */
-static TGCRYPTO_VAES_TARGET void tgcrypto_vaes_ctr16(
-    const uint8_t in[], uint8_t out[], const __m128i rk128[15], uint8_t iv[16]) {
-    __m256i rk[15];
-    __m256i v[8];
-    uint8_t ctr[16];
-    int i, r, k;
-
-    for (i = 0; i < 15; ++i)
-        rk[i] = _mm256_broadcastsi128_si256(rk128[i]);
-
-    memcpy(ctr, iv, 16);
-
-    for (i = 0; i < 8; ++i) {
-        __m128i lo = _mm_loadu_si128((const __m128i *) ctr);
-        for (k = 15; k >= 0; --k)
-            if (++ctr[k]) break;
-        __m128i hi = _mm_loadu_si128((const __m128i *) ctr);
-        for (k = 15; k >= 0; --k)
-            if (++ctr[k]) break;
-        v[i] = _mm256_inserti128_si256(_mm256_castsi128_si256(lo), hi, 1);
-    }
-
-    memcpy(iv, ctr, 16);
-
-    for (i = 0; i < 8; ++i)
-        v[i] = _mm256_xor_si256(v[i], rk[0]);
-
-    for (r = 1; r < 14; ++r)
-        for (i = 0; i < 8; ++i)
-            v[i] = _mm256_aesenc_epi128(v[i], rk[r]);
-
-    for (i = 0; i < 8; ++i) {
-        v[i] = _mm256_aesenclast_epi128(v[i], rk[14]);
-        __m256i x = _mm256_loadu_si256((const __m256i *) (in + i * 32));
-        _mm256_storeu_si256((__m256i *) (out + i * 32), _mm256_xor_si256(x, v[i]));
-    }
-
-    tgcrypto_wipe(rk, sizeof(rk));
-}
-
-#endif
-
 static TGCRYPTO_AESNI_TARGET int tgcrypto_aesni_available(void) {
     static int cached = -1;
 
@@ -310,66 +247,6 @@ static TGCRYPTO_AESNI_TARGET void tgcrypto_aesni_expand_key(const uint8_t key[32
 
     tgcrypto_wipe(rk, sizeof(rk));
 }
-
-#if TGCRYPTO_VAES
-/* Compare the VAES kernel against the verified 128-bit path on a fixed vector.
- * Runs once on VAES hardware; if the kernel is wrong we fall back rather than
- * emit bad ciphertext. Kept non-inline so it lives outside the hot path. */
-static TGCRYPTO_VAES_TARGET int tgcrypto_vaes_selftest_impl(void) {
-    static const uint8_t key[32] = {
-        0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f,
-        0x10,0x11,0x12,0x13,0x14,0x15,0x16,0x17,0x18,0x19,0x1a,0x1b,0x1c,0x1d,0x1e,0x1f
-    };
-    uint8_t iv[16], in[16 * 16], out_vaes[16 * 16], out_ref[16 * 16];
-    __m128i rk[15];
-    int i, j, k;
-
-    {
-        uint8_t rkbytes[240];
-        tgcrypto_aesni_expand_key(key, rkbytes, 0);
-        for (i = 0; i < 15; ++i)
-            rk[i] = _mm_loadu_si128((const __m128i *) &rkbytes[16 * i]);
-        tgcrypto_wipe(rkbytes, sizeof(rkbytes));
-    }
-
-    for (i = 0; i < 16; ++i) iv[i] = (uint8_t) i;
-    for (i = 0; i < (int) sizeof(in); ++i) in[i] = (uint8_t) (i * 7 + 3);
-
-    memcpy(out_vaes, in, sizeof(in));
-    {
-        uint8_t civ[16];
-        memcpy(civ, iv, 16);
-        tgcrypto_vaes_ctr16(in, out_vaes, rk, civ);
-    }
-
-    {
-        uint8_t civ[16];
-        memcpy(civ, iv, 16);
-        for (i = 0; i < 16; ++i) {
-            uint8_t ksbuf[16];
-            _mm_storeu_si128((__m128i *) ksbuf,
-                tgcrypto_aesni_encrypt_block(_mm_loadu_si128((const __m128i *) civ), rk));
-            for (j = 0; j < 16; ++j)
-                out_ref[i * 16 + j] = in[i * 16 + j] ^ ksbuf[j];
-            for (k = 15; k >= 0; --k)
-                if (++civ[k]) break;
-        }
-    }
-
-    return memcmp(out_vaes, out_ref, sizeof(in)) == 0;
-}
-
-static __attribute__((unused)) int tgcrypto_vaes_selftest(void) {
-    static int cached = -1;
-    if (cached < 0) {
-        if (tgcrypto_vaes_available())
-            cached = tgcrypto_vaes_selftest_impl() ? 1 : 0;
-        else
-            cached = 0;
-    }
-    return cached;
-}
-#endif
 
 #endif  // TGCRYPTO_AESNI
 
