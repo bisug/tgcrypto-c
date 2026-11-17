@@ -1,11 +1,12 @@
 """Thread-scaling benchmark for the tgcrypto extension.
 
 The extension releases the GIL for large buffers (8 KiB or more), so Python
-threads can run AES concurrently. This measures how well each mode scales with
-threads and prints aggregate throughput plus the speedup over one thread.
+threads can run AES concurrently. This prints aggregate throughput and the
+speedup over one thread.
 
-Each thread works on its own buffer, so every mode scales: even IGE, whose
-chaining is serial *within* a call, has independent chains across calls.
+Each call gets its own counter/IV buffers. The shared input is read-only, so
+no mutable state is shared between threads. CTR-state7 starts from a nonzero
+counter offset to exercise the streaming path.
 """
 
 import argparse
@@ -18,8 +19,9 @@ import tgcrypto
 
 def make_call(mode, data, key):
     if mode == "CTR":
-        # Fresh counter/state per call: no shared mutable state between threads.
         return lambda: tgcrypto.ctr256_encrypt(data, key, bytearray(16), bytearray(1))
+    if mode == "CTR-state7":
+        return lambda: tgcrypto.ctr256_encrypt(data, key, bytearray(16), bytearray([7]))
     if mode == "IGE":
         return lambda: tgcrypto.ige256_encrypt(data, key, bytes(32))
     if mode == "CBC":
@@ -57,8 +59,8 @@ def measure(mode, size, threads, rounds, repeats):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--modes", nargs="+", default=["CTR", "IGE", "CBC"],
-        choices=["CTR", "IGE", "CBC"],
+        "--modes", nargs="+", default=["CTR", "CTR-state7", "IGE", "CBC"],
+        choices=["CTR", "CTR-state7", "IGE", "CBC"],
     )
     parser.add_argument(
         "--sizes", nargs="+", type=int, default=[64 * 1024, 1024 * 1024],

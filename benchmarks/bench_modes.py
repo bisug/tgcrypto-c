@@ -1,3 +1,9 @@
+"""Compare one-shot functions with reusable contexts.
+
+Prints nanoseconds per call and the context speedup for each mode and size.
+CTR-state7 starts at a nonzero counter offset to exercise the streaming path.
+"""
+
 import argparse
 import timeit
 
@@ -27,7 +33,7 @@ def main():
 
     key = bytes(range(32))
     print(f"tgcrypto {tgcrypto.__version__}")
-    print("mode,size,legacy_ns,context_ns,context_speedup")
+    print("mode,size,oneshot_ns,context_ns,context_speedup")
 
     for size in SIZES:
         data = bytes(size)
@@ -41,6 +47,13 @@ def main():
                 tgcrypto.CTRContext(key, bytes(16)),
             ),
             (
+                "CTR-state7",
+                lambda: tgcrypto.ctr256_encrypt(
+                    data, key, bytearray(16), bytearray([7])
+                ),
+                tgcrypto.CTRContext(key, bytes(16), 7),
+            ),
+            (
                 "IGE",
                 lambda: tgcrypto.ige256_encrypt(data, key, bytes(32)),
                 tgcrypto.IGEContext(key, bytes(32)),
@@ -52,12 +65,12 @@ def main():
             ),
         )
 
-        for name, legacy, context in cases:
-            legacy_ns = measure(legacy, number, args.repeat)
+        for name, oneshot, context in cases:
+            oneshot_ns = measure(oneshot, number, args.repeat)
             context_ns = measure(lambda: context.update(data), number, args.repeat)
             print(
-                f"{name},{size},{legacy_ns:.1f},{context_ns:.1f},"
-                f"{legacy_ns / context_ns:.2f}"
+                f"{name},{size},{oneshot_ns:.1f},{context_ns:.1f},"
+                f"{oneshot_ns / context_ns:.2f}"
             )
 
 
