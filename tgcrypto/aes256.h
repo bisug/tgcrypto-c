@@ -42,7 +42,7 @@ void aes256_decrypt(const uint8_t in[16], uint8_t out[16], const uint32_t expand
  *
  * Whole words are cleared whenever the pointer is suitably aligned. A
  * byte-wise volatile loop costs ~1.7 ns per byte, and the key schedules and
- * round keys wiped on every call add up to ~500 bytes, which is a measurable
+ * round keys wiped on every call add up to ~720 bytes, which is a measurable
  * share of a small encrypt/decrypt call. Clearing 4 bytes per store is
  * roughly 8x cheaper for exactly the same guarantee.
  */

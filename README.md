@@ -1,17 +1,16 @@
 # TgCrypto-C
 
-**TgCrypto-C** is a maintained, drop-in replacement for `tgcrypto`
-([pyrogram/tgcrypto](https://github.com/pyrogram/tgcrypto)): a fast AES-256
-cryptography library written in C as a Python extension. It implements the three
-algorithms Telegram clients need, with AES-NI hardware acceleration and reusable
-streaming contexts.
+TgCrypto-C is a drop-in replacement for `tgcrypto`
+([pyrogram/tgcrypto](https://github.com/pyrogram/tgcrypto)). It is a C Python
+extension for the AES-256 modes used by Telegram clients, with optional AES-NI
+acceleration and reusable streaming contexts.
 
 - **Package name:** `tgcrypto-c` on [PyPI](https://pypi.org/project/tgcrypto-c/)
 - **Import name:** `tgcrypto` (unchanged, so existing code keeps working)
 - **Use with:** [Pyrogram](https://github.com/pyrogram/pyrogram) and
   [Kurigram](https://kurigram.icu/)
 - **Python:** 3.9–3.15
-- **Platforms:** Linux (x86_64, ARM64), macOS (Intel, Apple Silicon), Windows (AMD64)
+- **Platforms:** Linux (x86_64, ARM64), macOS (Intel, Apple Silicon), Windows (AMD64, x86)
 
 It implements the cryptographic algorithms Telegram requires:
 
@@ -22,9 +21,6 @@ It implements the cryptographic algorithms Telegram requires:
 Migrating from `tgcrypto` requires no code change: the six original functions
 keep their exact names, argument order, return types and validation behaviour,
 and the cryptographic output is bit-for-bit identical.
-
-> [!NOTE]
-> The implementations of the algorithms presented in this repository are to be considered for educational purposes only.
 
 ## Requirements
 
@@ -40,13 +36,7 @@ Prebuilt wheels for Linux, macOS and Windows are published on
 ### pip
 
 ``` bash
-$ pip install tgcrypto-c
-```
-
-or, equivalently, the explicit module form:
-
-``` bash
-$ python -m pip install -U tgcrypto-c
+$ python -m pip install tgcrypto-c
 ```
 
 ### uv
@@ -57,14 +47,13 @@ Add it to your project (updates `pyproject.toml` and the lockfile):
 $ uv add tgcrypto-c
 ```
 
-Or install it into the active virtual environment, pip-style:
+Install into the active virtual environment instead:
 
 ``` bash
 $ uv pip install tgcrypto-c
 ```
 
-The distribution is named `tgcrypto-c`; existing code continues to use the
-`tgcrypto` import, so no source changes are needed:
+The distribution is named `tgcrypto-c`; the import stays `tgcrypto`:
 
 ``` python
 import tgcrypto
@@ -103,131 +92,20 @@ Note that setting `CFLAGS` replaces the compiler's default flags, so keep `-O2`:
 $ CFLAGS="-DTGCRYPTO_NO_AESNI -O2" pip3 install git+https://github.com/bisug/tgcrypto-c
 ```
 
-Passing heavier flags through `CFLAGS` is possible, but measurements on the
-reference machine showed no consistent gain from `-O3 -flto` over the default
-build, so it is left out:
-
-``` bash
-$ CFLAGS="-O3 -flto" pip3 install git+https://github.com/bisug/tgcrypto-c
-```
-
-Benchmark before adopting any such flags; the default build is already the
-fast path on AES-NI hardware.
-
-Note the portable table-based AES implementation is functionally correct but
-not hardened against cache-timing side channels; the AES-NI path
-(constant-time instructions, used automatically when available) is preferred.
-
-### Small-message cost
-
-MTProto encrypts many small messages (a 16-byte payload is a single AES block),
-so the fixed cost of every call — argument handling, key schedule and the
-key-material wipe — matters as much as bulk throughput. Optimizations targeting
-that fixed cost:
-
-* **Key-material wipe** (expanded key plus loaded round keys, ~500 bytes per
-  call) is cleared with word-wide stores instead of a byte-wise volatile loop,
-  which is ~8x cheaper while giving exactly the same guarantee.
-* **Key schedule** — on the AES-NI path the 60-word expanded key is generated
-  with `aeskeygenassist`/`aesimc` instructions instead of the table-based
-  scalar routine.
-* **No redundant copy** — the AES-NI paths read the input buffer directly
-  instead of first copying it into the output buffer, so large payloads are
-  touched once rather than twice.
-* **Reusable contexts** — `CTRContext`, `IGEContext` and `CBCContext` expand
-  the key once and keep the chaining state between calls, which removes the
-  key schedule from every subsequent call.
-* **Fastcall entry points** — all functions and `update` methods use
-  `METH_FASTCALL` instead of `METH_VARARGS`, avoiding tuple allocation and
-  `PyArg_ParseTuple` overhead on every call (~50 ns saved per small call).
-* **GIL threshold** — the GIL is only released for payloads of 8 KiB or more.
-  For smaller buffers the release/acquire cost exceeds the AES work, so the
-  call runs with the GIL held for lower latency. Large payloads still release
-  the GIL and scale across Python threads.
-* **CTR round interleaving** — the four CTR blocks are encrypted round-by-round
-  (round 1 for all four, then round 2, …) so AESENC latency overlaps across
-  blocks instead of stalling on one block's dependency chain (~20% faster
-  bulk CTR).
-
-### Measured performance
-
-Every figure below comes from a low-power 4-core Intel Celeron N4120 with no
-AVX2 (AES-NI only), running a Python 3.14 Linux x86_64 build (best of 7,
-single-threaded). Absolute throughput will differ substantially on server CPUs,
-and these numbers have not been verified there.
-
-1 MiB throughput, one-shot functions versus reusable contexts:
-
-| Mode | One-shot | Context |
-|---|---:|---:|
-| AES-256-IGE encrypt | 670 MB/s | 680 MB/s |
-| AES-256-CBC encrypt | 674 MB/s | 678 MB/s |
-| AES-256-CTR encrypt | 1572 MB/s | **1665 MB/s** |
-
-16-byte calls, where the key schedule dominates:
-
-| Call | Time |
-|---|---:|
-| `ige256_encrypt` | 685 ns |
-| `cbc256_encrypt` | 723 ns |
-| `ctr256_encrypt` | 881 ns |
-| `CTRContext.update` | **171 ns** |
-
-A reusable context is therefore ~5.2x faster than the one-shot function for
-16-byte CTR, and the gap disappears once payloads are large enough that AES
-throughput dominates.
-
-Thread scaling (1 MiB, 4 CPUs). Large mode calls release the GIL, so each
-thread runs its own buffer concurrently:
-
-| Mode | 1 thread | 2 threads | 4 threads |
-|---|---:|---:|---:|
-| CTR | 1564 MB/s | 3116 MB/s (1.99x) | 4652 MB/s (2.97x) |
-| IGE | 648 MB/s | 1213 MB/s (1.87x) | 2429 MB/s (3.75x) |
-| CBC | 670 MB/s | 1257 MB/s (1.88x) | 1720 MB/s (2.57x) |
-
-Even IGE scales: its chaining is serial *within* a call, but separate calls are
-independent. Beyond 2 threads the returns flatten on this 4-core, low-power
-test machine because memory bandwidth becomes the limit.
+The portable table-based fallback is functionally correct but not hardened
+against cache-timing side channels. Use the AES-NI path where available.
 
 ## Comparison with the original
 
 | | Original ([pyrogram/tgcrypto](https://github.com/pyrogram/tgcrypto)) | This fork |
 |---|---|---|
-| Status | Unmaintained | Actively maintained |
-| Python support | 3.7 – 3.11 | **3.9 – 3.15** |
+| Python support | 3.7 – 3.11 | 3.9 – 3.15 |
 | Packaging | `setup.py` | `pyproject.toml` (PEP 621) |
-| AES acceleration | Portable software implementation only | **AES-NI hardware acceleration** (runtime-detected) with software fallback |
-| Speed without AES-NI / non-x86 | Baseline | Identical (same software code path, bit-for-bit) |
-| Output compatibility | — | Cryptographic output is **bit-for-bit identical** to the original |
-| API | Six functions | **Unchanged** — drop-in compatible with Pyrogram and Kurigram |
-| Extras | — | Reusable streaming contexts, type stubs |
-| CI | — | Test matrix 3.9–3.15; wheels for Linux (x86_64, ARM64), macOS (Intel, Apple Silicon) and Windows (AMD64) |
+| AES acceleration | Portable software implementation only | Runtime-detected AES-NI with software fallback |
+| Output | — | Bit-for-bit identical ciphertext |
+| API | Six functions | Unchanged, plus reusable streaming contexts |
+| Type stubs | — | `tgcrypto.pyi` |
 | License | LGPLv3+ | LGPLv3+ |
-
-Upstream ships a software-only build, so the AES-NI path is what separates the
-two. Measured on the same machine, same interpreter, same buffers (1 MiB,
-best of 7, alternating runs):
-
-| Operation | Original | This fork | Difference |
-|---|---:|---:|---:|
-| AES-256-IGE encrypt | 101 MB/s | 670 MB/s | ~6.6x |
-| AES-256-CTR encrypt | 84 MB/s | 1572 MB/s | ~18.7x |
-| AES-256-CBC encrypt | 101 MB/s | 674 MB/s | ~6.7x |
-
-The speedup varies by mode because the two implementations have different
-per-block costs. Encryption and decryption are equally affected.
-
-When built with `TGCRYPTO_NO_AESNI`, this fork matches the original almost
-exactly, confirming that the gain comes from the hardware path and not from
-changes to the algorithms:
-
-| Operation | Original | This fork (no AES-NI) |
-|---|---:|---:|
-| AES-256-IGE encrypt | 101 MB/s | 103 MB/s |
-| AES-256-CTR encrypt | 83 MB/s | 83 MB/s |
-| AES-256-CBC encrypt | 102 MB/s | 109 MB/s |
-
 
 ## API
 
@@ -432,9 +310,7 @@ $ pip install tgcrypto-c
 
 ### Is it a drop-in replacement? Do I need to change my code?
 
-No code changes. The six original functions keep their names, argument order,
-return types and validation behaviour, and produce bit-for-bit identical
-ciphertext. Existing `import tgcrypto` statements keep working.
+Yes. Keep the same `import tgcrypto` and the same six function calls.
 
 ### Which Python versions are supported?
 
@@ -447,12 +323,9 @@ Linux (x86_64, ARM64), macOS (Intel and Apple Silicon) and Windows (AMD64 and
 
 ### Why is it faster than the original `tgcrypto`?
 
-The original ships a portable software AES implementation. This fork detects
+The original ships a software-only AES implementation. This project detects
 AES-NI at runtime and uses hardware AES instructions when available, falling
-back to the same portable code path otherwise. On AES-NI hardware that is
-roughly 6.6x faster for IGE, 18.7x for CTR and 6.7x for CBC in local
-measurements. See [Performance](#performance) for the full tables and the
-reference machine.
+back to the same portable code path otherwise.
 
 ### How do I make repeated small encryptions faster?
 
@@ -464,8 +337,7 @@ context = tgcrypto.CTRContext(key, iv)
 out = context.update(chunk)
 ```
 
-`IGEContext` and `CBCContext` work the same way. On 16-byte messages a context is
-about 5x faster than calling the one-shot function each time.
+`IGEContext` and `CBCContext` work the same way.
 
 ### Is it thread-safe? Can I use it from multiple threads?
 
@@ -502,12 +374,19 @@ Open an issue at
 
 1. Clone this repository: `git clone https://github.com/bisug/tgcrypto-c`.
 2. Enter the directory: `cd tgcrypto-c`.
-3. Install the test dependencies: `pip3 install pytest pycryptodome cryptography`
-   (`pycryptodome`/`cryptography` are used as independent reference primitives by
-   the known-answer tests; without them those tests skip silently.)
+3. Install the package and test dependencies:
+   `pip3 install . pytest pycryptodome cryptography`
+   (`pycryptodome`/`cryptography` are independent reference primitives used by
+   the known-answer tests; without them those tests skip.)
 4. Run tests: `pytest`.
 
 ## Changelog
+
+### Unreleased
+
+* Clear the local AES-NI round-key copy before each mode function returns.
+* Keep CTR streaming on the fast path when a call starts at counter state 1-15.
+* Declare GIL-free support on free-threaded Python and test the 8 KiB GIL path.
 
 ### 1.3.2
 
